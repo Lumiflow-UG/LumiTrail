@@ -31,13 +31,13 @@ Every existing solution falls short in some way:
 
 ## Screenshot
 
-![GPX Photo Map](screenshot.png)
+![LumiTrail Photo](screenshot.png)
 
 ## Installation
 
 ### Option A: Ready-to-run EXE (Windows)
 
-Download `gpx_photo_map.exe` from the [Releases](../../releases) page — no Python installation needed.
+Download `lumitrail.exe` from the [Releases](../../releases) page — no Python installation needed.
 
 ### Option B: Run from source
 
@@ -80,13 +80,13 @@ conda install -n gpxphotomap -c conda-forge gpxpy pillow -y
 ### With the EXE
 
 ```
-gpx_photo_map.exe "X:\path\to\your\photos_and_gpx"
+lumitrail.exe "X:\path\to\your\photos_and_gpx"
 ```
 
 ### With the BAT launcher (from source)
 
 ```
-gpx_photo_map.bat "X:\path\to\your\photos_and_gpx"
+lumitrail.bat "X:\path\to\your\photos_and_gpx"
 ```
 
 This will:
@@ -99,7 +99,7 @@ This will:
 **Step 1: Preprocess**
 
 ```bash
-conda run -n gpxphotomap python preprocess.py "X:\path\to\photos" -o ./map_output
+conda run -n lumitrail python preprocess.py "X:\path\to\photos" -o ./map_output
 ```
 
 Scans recursively, parses GPX, extracts EXIF GPS, generates thumbnails.  
@@ -108,13 +108,13 @@ A `.cache.json` is stored in the output directory — on subsequent runs, only n
 Multiple input directories can be specified:
 
 ```bash
-conda run -n gpxphotomap python preprocess.py "X:\2024 Wandern Rad" "X:\2025 Wandern Rad" -o ./map_output
+conda run -n lumitrail python preprocess.py "X:\2024 Wandern Rad" "X:\2025 Wandern Rad" -o ./map_output
 ```
 
 **Step 2: Serve**
 
 ```bash
-conda run -n gpxphotomap python server.py -d ./map_output
+conda run -n lumitrail python server.py -d ./map_output
 ```
 
 Opens `http://localhost:8080` with the interactive map.  
