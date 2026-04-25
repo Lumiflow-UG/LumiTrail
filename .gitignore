@@ -1,0 +1,5 @@
+map_output/**
+dist/**
+build/**
+*.spec
+__pycache__/**

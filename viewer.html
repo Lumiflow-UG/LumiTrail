@@ -1,0 +1,604 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LumiTrail</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+#map { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1; }
+
+/* Control panel */
+#panel {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  background: white; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  padding: 12px; max-width: 320px; max-height: 90vh; overflow-y: auto;
+  font-size: 13px;
+}
+#panel h2 { font-size: 15px; margin-bottom: 8px; }
+#panel .stats { color: #666; margin-bottom: 10px; font-size: 12px; }
+#panel label { display: block; margin: 2px 0; cursor: pointer; }
+#panel label:hover { background: #f0f0f0; border-radius: 3px; }
+#panel input[type=checkbox] { margin-right: 6px; }
+.section { margin-top: 10px; border-top: 1px solid #eee; padding-top: 8px; }
+.section-title { font-weight: 600; margin-bottom: 4px; font-size: 13px; cursor: pointer; }
+.section-title:hover { color: #0066cc; }
+.tour-list { max-height: 300px; overflow-y: auto; }
+
+/* Toggle buttons */
+.toggle-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.toggle-btn {
+  flex: 1; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;
+  background: #f8f8f8; cursor: pointer; text-align: center; font-size: 12px;
+  transition: all 0.15s;
+}
+.toggle-btn.active { background: #0066cc; color: white; border-color: #0066cc; }
+.toggle-btn:hover { border-color: #999; }
+
+/* Photo popup */
+.photo-popup { text-align: center; }
+.photo-popup img { max-width: 280px; max-height: 200px; border-radius: 4px; }
+.photo-popup .meta { font-size: 11px; color: #666; margin-top: 4px; }
+
+/* Track popup */
+.track-popup .name { font-weight: 600; margin-bottom: 4px; }
+.track-popup .meta { font-size: 11px; color: #666; }
+.track-popup .copy-path { display: inline-block; margin-top: 6px; cursor: pointer; font-size: 11px; color: #1a73e8; text-decoration: none; }
+.track-popup .copy-path:hover { text-decoration: underline; }
+.track-popup .copy-ok { color: #2e7d32; font-size: 11px; margin-left: 4px; }
+
+/* Photo gallery strip */
+#gallery {
+  display: none; position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000;
+  background: rgba(20,20,20,0.92); backdrop-filter: blur(8px);
+  border-top: 1px solid #444;
+}
+#gallery-close {
+  position: absolute; top: 6px; right: 12px; color: #aaa; font-size: 20px;
+  cursor: pointer; z-index: 1001; background: none; border: none; line-height: 1;
+}
+#gallery-close:hover { color: white; }
+#gallery-main {
+  display: flex; align-items: center; justify-content: center;
+  padding: 8px 40px; gap: 8px; min-height: 160px;
+}
+#gallery-main img {
+  max-height: 220px; max-width: 50vw; border-radius: 6px;
+  object-fit: contain; cursor: zoom-in;
+}
+#gallery-meta {
+  color: #ccc; font-size: 12px; text-align: center; padding: 0 0 4px;
+}
+.gallery-arrow {
+  background: rgba(255,255,255,0.15); border: none; color: white;
+  font-size: 28px; width: 40px; height: 60px; cursor: pointer;
+  border-radius: 6px; flex-shrink: 0; transition: background 0.15s;
+}
+.gallery-arrow:hover { background: rgba(255,255,255,0.3); }
+.gallery-arrow:disabled { opacity: 0.2; cursor: default; }
+#gallery-strip {
+  display: flex; gap: 4px; padding: 4px 12px 8px; overflow-x: auto;
+  justify-content: center;
+}
+#gallery-strip img {
+  width: 48px; height: 48px; object-fit: cover; border-radius: 4px;
+  cursor: pointer; border: 2px solid transparent; opacity: 0.6;
+  transition: all 0.15s; flex-shrink: 0;
+}
+#gallery-strip img.active { border-color: #4a90d9; opacity: 1; }
+#gallery-strip img:hover { opacity: 1; }
+
+/* Fullscreen lightbox */
+#lightbox {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 2000; background: rgba(0,0,0,0.95);
+  align-items: center; justify-content: center; flex-direction: column;
+  cursor: zoom-out;
+}
+#lightbox.open { display: flex; }
+#lightbox img {
+  max-width: 95vw; max-height: 80vh; object-fit: contain; border-radius: 4px;
+  cursor: default; width: auto; height: 80vh;
+}
+#lightbox-meta {
+  color: #aaa; font-size: 13px; margin-top: 10px; text-align: center;
+}
+#lightbox .gallery-arrow {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  height: 80px; width: 50px; font-size: 36px;
+}
+#lightbox #lb-prev { left: 12px; }
+#lightbox #lb-next { right: 12px; }
+#lightbox-close {
+  position: absolute; top: 12px; right: 18px; color: #aaa; font-size: 32px;
+  cursor: pointer; background: none; border: none; line-height: 1;
+}
+#lightbox-close:hover { color: white; }
+
+/* Loading */
+#loading {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 2000; background: white; padding: 20px 30px; border-radius: 8px;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.3); font-size: 14px;
+}
+
+/* Photo marker */
+.photo-marker {
+  width: 36px; height: 36px; border-radius: 4px; border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4); background-size: cover;
+  background-position: center;
+}
+
+/* Cluster custom */
+.marker-cluster-small { background-color: rgba(0, 102, 204, 0.3); }
+.marker-cluster-small div { background-color: rgba(0, 102, 204, 0.6); }
+.marker-cluster-medium { background-color: rgba(204, 102, 0, 0.3); }
+.marker-cluster-medium div { background-color: rgba(204, 102, 0, 0.6); }
+.marker-cluster-large { background-color: rgba(204, 0, 0, 0.3); }
+.marker-cluster-large div { background-color: rgba(204, 0, 0, 0.6); }
+</style>
+</head>
+<body>
+
+<div id="loading">Lade Kartendaten...</div>
+<div id="map"></div>
+<div id="gallery">
+  <button id="gallery-close" onclick="closeGallery()">&times;</button>
+  <div id="gallery-main">
+    <button class="gallery-arrow" id="gallery-prev" onclick="galleryNav(-1)">&#8249;</button>
+    <img id="gallery-img" src="">
+    <button class="gallery-arrow" id="gallery-next" onclick="galleryNav(1)">&#8250;</button>
+  </div>
+  <div id="gallery-meta"></div>
+  <div id="gallery-strip"></div>
+</div>
+<div id="lightbox">
+  <button id="lightbox-close" onclick="closeLightbox()">&times;</button>
+  <button class="gallery-arrow" id="lb-prev" onclick="event.stopPropagation(); galleryNav(-1); updateLightbox();">&#8249;</button>
+  <img id="lightbox-img" src="">
+  <div id="lightbox-meta"></div>
+  <button class="gallery-arrow" id="lb-next" onclick="event.stopPropagation(); galleryNav(1); updateLightbox();">&#8250;</button>
+</div>
+<div id="panel">
+  <h2>☀ LumiTrail</h2>
+  <div id="stats" class="stats"></div>
+  
+  <div class="toggle-row">
+    <div class="toggle-btn active" id="btnTracks" onclick="toggleLayer('tracks')">📍 Tracks</div>
+    <div class="toggle-btn active" id="btnPhotos" onclick="toggleLayer('photos')">📷 Fotos</div>
+  </div>
+  
+  <div class="section">
+    <div class="section-title" onclick="toggleAllTours()">Touren (alle an/aus)</div>
+    <div id="tourList" class="tour-list"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let map, trackGroup, photoCluster, heatLayer;
+let trackLayersById = {};  // id -> {layer, data, tour}
+let photoMarkersById = {}; // id -> {marker, data, tour}
+let allTours = [];
+let activeTours = new Set();
+let showTracks = true, showPhotos = true;
+let loadTimer = null;
+const DEBOUNCE_MS = 300;
+
+const TRACK_COLOR = 'rgba(50, 100, 180, 0.35)';
+const TRACK_COLOR_FULL = 'rgba(50, 100, 180, 0.6)';
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+async function init() {
+  map = L.map('map', { zoomControl: true }).setView([48.5, 9.5], 8);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19,
+    subdomains: 'abcd',
+  }).addTo(map);
+
+  trackGroup = L.layerGroup().addTo(map);
+  photoCluster = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    spiderfyOnMaxZoom: true,
+    showCoverageOnHover: false,
+    disableClusteringAtZoom: 16,
+  }).addTo(map);
+
+  // Load stats + tours
+  try {
+    const [statsResp, toursResp] = await Promise.all([
+      fetch('/api/stats'), fetch('/api/tours')
+    ]);
+    const stats = await statsResp.json();
+    allTours = await toursResp.json();
+
+    document.getElementById('stats').textContent =
+      `${stats.tracks} Tracks \u00b7 ${stats.photos} Fotos \u00b7 ${stats.tours} Touren`;
+
+    activeTours = new Set(allTours);
+    const tourList = document.getElementById('tourList');
+    allTours.forEach(tour => {
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.dataset.tour = tour;
+      cb.addEventListener('change', () => {
+        if (cb.checked) activeTours.add(tour);
+        else activeTours.delete(tour);
+        loadViewport();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(tour));
+      tourList.appendChild(label);
+    });
+  } catch (e) {
+    document.getElementById('loading').textContent = 'Fehler: API nicht erreichbar!';
+    return;
+  }
+
+  // Initial load
+  await loadViewport();
+
+  // Fit to all data on first load
+  const allBounds = [];
+  Object.values(trackLayersById).forEach(t => {
+    allBounds.push(t.data.bounds[0], t.data.bounds[1]);
+  });
+  Object.values(photoMarkersById).forEach(p => {
+    allBounds.push([p.data.lat, p.data.lon]);
+  });
+  if (allBounds.length > 0) {
+    map.fitBounds(L.latLngBounds(allBounds).pad(0.05));
+  }
+
+  // Reload on viewport change
+  map.on('moveend', () => {
+    clearTimeout(loadTimer);
+    loadTimer = setTimeout(loadViewport, DEBOUNCE_MS);
+  });
+
+  document.getElementById('loading').style.display = 'none';
+
+  // Cluster click -> gallery
+  photoCluster.on('clusterclick', function(e) {
+    const childMarkers = e.layer.getAllChildMarkers();
+    if (childMarkers.length > 0) {
+      openGalleryNearby(childMarkers[0].getLatLng(), childMarkers);
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Lazy load viewport data
+// ---------------------------------------------------------------------------
+async function loadViewport() {
+  const b = map.getBounds();
+  const params = new URLSearchParams({
+    south: b.getSouth(), north: b.getNorth(),
+    west: b.getWest(), east: b.getEast(),
+  });
+  const tourParam = activeTours.size < allTours.length
+    ? Array.from(activeTours).join(',') : '';
+  if (tourParam) params.set('tours', tourParam);
+
+  const [tracksResp, photosResp] = await Promise.all([
+    showTracks ? fetch(`/api/tracks?${params}`) : Promise.resolve(null),
+    showPhotos ? fetch(`/api/photos?${params}`) : Promise.resolve(null),
+  ]);
+
+  // --- Tracks ---
+  if (tracksResp) {
+    const tracks = await tracksResp.json();
+    const newIds = new Set(tracks.map(t => t.id));
+
+    // Remove tracks no longer in viewport
+    for (const id of Object.keys(trackLayersById)) {
+      if (!newIds.has(id)) {
+        trackGroup.removeLayer(trackLayersById[id].layer);
+        delete trackLayersById[id];
+      }
+    }
+
+    // Add new tracks
+    const heatPoints = [];
+    tracks.forEach(track => {
+      const latlngs = track.overview.map(p => [p[0], p[1]]);
+      latlngs.forEach(ll => heatPoints.push([ll[0], ll[1], 0.4]));
+
+      if (trackLayersById[track.id]) return; // already displayed
+
+      const line = L.polyline(latlngs, {
+        color: TRACK_COLOR, weight: 3, opacity: 1,
+        lineCap: 'round', lineJoin: 'round',
+      });
+
+      const dateStr = track.date ? new Date(track.date).toLocaleDateString('de-DE') : '';
+      const folderPath = track.folder || '';
+      line.bindPopup(`
+        <div class="track-popup">
+          <div class="name">${escHtml(track.name)}</div>
+          <div class="meta">
+            ${dateStr ? '\ud83d\udcc5 ' + dateStr + '<br>' : ''}
+            \ud83d\udcca ${track.point_count} Punkte<br>
+            \ud83d\udcc1 ${escHtml(track.tour)}<br>
+            <a href="#" onclick="loadFullTrack('${track.id}'); return false;">
+              \ud83d\udd0d Volle Aufl\u00f6sung laden
+            </a>
+            ${folderPath ? '<br><a href="#" class="copy-path" data-path="' + escHtml(folderPath) + '" onclick="copyPath(this.dataset.path, this); return false;">\ud83d\udccb Pfad kopieren</a>' : ''}
+          </div>
+        </div>
+      `);
+
+      line.addTo(trackGroup);
+      trackLayersById[track.id] = { layer: line, data: track, tour: track.tour };
+    });
+
+    // Update heatmap
+    if (heatLayer) map.removeLayer(heatLayer);
+    if (heatPoints.length > 0) {
+      heatLayer = L.heatLayer(heatPoints, {
+        radius: 12, blur: 15, maxZoom: 14, max: 1.0,
+        gradient: {
+          0.0: '#d0d8ff', 0.3: '#4a7dcc', 0.5: '#2255aa',
+          0.7: '#cc6622', 0.85: '#dd3311', 1.0: '#ff0000'
+        }
+      }).addTo(map);
+    }
+  } else {
+    // Tracks hidden
+    for (const id of Object.keys(trackLayersById)) {
+      trackGroup.removeLayer(trackLayersById[id].layer);
+    }
+    trackLayersById = {};
+    if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  }
+
+  // --- Photos ---
+  if (photosResp) {
+    const photos = await photosResp.json();
+    const newIds = new Set(photos.map(p => p.id));
+
+    // Remove photos no longer in viewport
+    for (const id of Object.keys(photoMarkersById)) {
+      if (!newIds.has(id)) {
+        photoCluster.removeLayer(photoMarkersById[id].marker);
+        delete photoMarkersById[id];
+      }
+    }
+
+    // Add new photos
+    photos.forEach(photo => {
+      if (photoMarkersById[photo.id]) return;
+
+      const icon = L.divIcon({
+        className: 'photo-marker',
+        html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${photo.thumb}') center/cover;"></div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18],
+      });
+
+      const marker = L.marker([photo.lat, photo.lon], { icon });
+      marker._photoId = photo.id;
+      marker.on('click', () => openGalleryAt(marker));
+
+      photoCluster.addLayer(marker);
+      photoMarkersById[photo.id] = { marker, data: photo, tour: photo.tour };
+    });
+  } else {
+    // Photos hidden
+    photoCluster.clearLayers();
+    photoMarkersById = {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Load full-resolution track
+// ---------------------------------------------------------------------------
+async function loadFullTrack(trackId) {
+  try {
+    const resp = await fetch(`/api/track/${trackId}`);
+    const points = await resp.json();
+    const latlngs = points.map(p => [p[0], p[1]]);
+
+    const entry = trackLayersById[trackId];
+    if (entry) {
+      trackGroup.removeLayer(entry.layer);
+      const fullLine = L.polyline(latlngs, {
+        color: TRACK_COLOR_FULL, weight: 3, opacity: 1,
+        lineCap: 'round', lineJoin: 'round',
+      });
+      fullLine.bindPopup(entry.layer.getPopup());
+      fullLine.addTo(trackGroup);
+      entry.layer = fullLine;
+      map.fitBounds(fullLine.getBounds().pad(0.05));
+    }
+  } catch (e) {
+    console.error('Could not load full track:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Visibility / Filtering
+// ---------------------------------------------------------------------------
+function toggleLayer(which) {
+  if (which === 'tracks') {
+    showTracks = !showTracks;
+    document.getElementById('btnTracks').classList.toggle('active', showTracks);
+  } else {
+    showPhotos = !showPhotos;
+    document.getElementById('btnPhotos').classList.toggle('active', showPhotos);
+  }
+  loadViewport();
+}
+
+function toggleAllTours() {
+  const allOn = activeTours.size === allTours.length;
+  const checkboxes = document.querySelectorAll('#tourList input');
+  if (allOn) {
+    activeTours.clear();
+    checkboxes.forEach(cb => cb.checked = false);
+  } else {
+    allTours.forEach(t => activeTours.add(t));
+    checkboxes.forEach(cb => cb.checked = true);
+  }
+  loadViewport();
+}
+
+// ---------------------------------------------------------------------------
+// Util
+// ---------------------------------------------------------------------------
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s || '';
+  return div.innerHTML;
+}
+
+function copyPath(path, el) {
+  navigator.clipboard.writeText(path).then(() => {
+    const span = document.createElement('span');
+    span.className = 'copy-ok';
+    span.textContent = ' ✓ kopiert';
+    el.parentNode.insertBefore(span, el.nextSibling);
+    setTimeout(() => span.remove(), 1500);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Gallery
+// ---------------------------------------------------------------------------
+let galleryPhotos = [];
+let galleryIdx = 0;
+
+function openGalleryAt(marker) {
+  const latlng = marker.getLatLng();
+  openGalleryNearby(latlng);
+}
+
+function openGalleryNearby(latlng, clusterMarkers) {
+  const NEARBY_RADIUS = 300;
+  let nearby;
+  const allPhotos = Object.values(photoMarkersById);
+
+  if (clusterMarkers) {
+    const idSet = new Set(clusterMarkers.map(m => m._photoId));
+    nearby = allPhotos.filter(p => idSet.has(p.data.id)).map(p => p.data);
+    if (nearby.length === 0) {
+      nearby = allPhotos
+        .filter(p => latlng.distanceTo(L.latLng(p.data.lat, p.data.lon)) < NEARBY_RADIUS)
+        .map(p => p.data);
+    }
+  } else {
+    nearby = allPhotos
+      .filter(p => activeTours.has(p.tour))
+      .filter(p => latlng.distanceTo(L.latLng(p.data.lat, p.data.lon)) < NEARBY_RADIUS)
+      .map(p => p.data);
+  }
+
+  nearby.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  if (nearby.length === 0) return;
+
+  galleryPhotos = nearby;
+  galleryIdx = 0;
+
+  let minDist = Infinity;
+  nearby.forEach((p, i) => {
+    const d = latlng.distanceTo(L.latLng(p.lat, p.lon));
+    if (d < minDist) { minDist = d; galleryIdx = i; }
+  });
+
+  renderGallery();
+  document.getElementById('gallery').style.display = 'block';
+}
+
+function renderGallery() {
+  const photo = galleryPhotos[galleryIdx];
+  document.getElementById('gallery-img').src = photo.thumb;
+  const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
+  document.getElementById('gallery-meta').innerHTML =
+    `\ud83d\udcf7 ${escHtml(photo.filename)}${dateStr ? ' &middot; ' + dateStr : ''} &middot; ${escHtml(photo.tour)} &middot; ${galleryIdx + 1}/${galleryPhotos.length}`;
+
+  document.getElementById('gallery-prev').disabled = galleryIdx === 0;
+  document.getElementById('gallery-next').disabled = galleryIdx === galleryPhotos.length - 1;
+
+  const strip = document.getElementById('gallery-strip');
+  strip.innerHTML = '';
+  galleryPhotos.forEach((p, i) => {
+    const img = document.createElement('img');
+    img.src = p.thumb;
+    img.className = i === galleryIdx ? 'active' : '';
+    img.onclick = () => { galleryIdx = i; renderGallery(); };
+    strip.appendChild(img);
+  });
+  setTimeout(() => {
+    const active = strip.querySelector('.active');
+    if (active) active.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, 50);
+}
+
+function galleryNav(dir) {
+  galleryIdx = Math.max(0, Math.min(galleryPhotos.length - 1, galleryIdx + dir));
+  renderGallery();
+}
+
+function closeGallery() {
+  document.getElementById('gallery').style.display = 'none';
+  closeLightbox();
+}
+
+// Lightbox
+function openLightbox() {
+  updateLightbox();
+  document.getElementById('lightbox').classList.add('open');
+  document.activeElement?.blur();
+}
+
+function updateLightbox() {
+  const photo = galleryPhotos[galleryIdx];
+  document.getElementById('lightbox-img').src = `/original/${photo.id}.jpg`;
+  const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
+  document.getElementById('lightbox-meta').innerHTML =
+    `\ud83d\udcf7 ${escHtml(photo.filename)}${dateStr ? ' &middot; ' + dateStr : ''} &middot; ${escHtml(photo.tour)} &middot; ${galleryIdx + 1}/${galleryPhotos.length}`;
+  document.getElementById('lb-prev').disabled = galleryIdx === 0;
+  document.getElementById('lb-next').disabled = galleryIdx === galleryPhotos.length - 1;
+  renderGallery();
+}
+
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+
+document.getElementById('lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox') closeLightbox();
+});
+
+document.getElementById('gallery-img').addEventListener('click', () => openLightbox());
+
+document.addEventListener('keydown', (e) => {
+  const galleryOpen = document.getElementById('gallery').style.display === 'block';
+  const lightboxOpen = document.getElementById('lightbox').classList.contains('open');
+  if (!galleryOpen && !lightboxOpen) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); galleryNav(-1); if (lightboxOpen) updateLightbox(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); galleryNav(1); if (lightboxOpen) updateLightbox(); }
+  else if (e.key === 'Escape') { e.preventDefault(); if (lightboxOpen) closeLightbox(); else closeGallery(); }
+});
+
+// ---------------------------------------------------------------------------
+// Start
+// ---------------------------------------------------------------------------
+init();
+</script>
+</body>
+</html>
