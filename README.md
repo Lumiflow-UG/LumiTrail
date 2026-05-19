@@ -26,6 +26,7 @@ Every existing solution falls short in some way:
 - **Fullscreen lightbox** — click to view original full-resolution photos
 - **Tour filtering** — toggle tracks/photos by folder (tour)
 - **Delta caching** — only new/changed files are re-processed on subsequent runs
+- **File watching** — `--watch` mode automatically picks up new photos and GPX files without restarting
 - **Fast startup** — preprocessed data loads in seconds
 - **Offline-capable** — works on local network drives, no internet needed (except for map tiles)
 
@@ -39,12 +40,18 @@ Every existing solution falls short in some way:
 
 Download `lumitrail.exe` from the [Releases](../../releases) page — no Python installation needed.
 
-### Option B: Run from source
+### Option B: Docker (Linux / NAS / Synology)
+
+Runs as a container — no Python installation needed. Works on any Linux host including **Synology NAS** via Container Manager.
+
+See [Docker setup](#docker) below.
+
+### Option C: Run from source
 
 This repository contains the Python source code. Requirements:
 
 - **Python 3.10+** with a conda environment
-- **conda packages**: `gpxpy`, `pillow` (installed via conda-forge)
+- **conda packages**: `gpxpy`, `pillow`, `watchdog` (installed via conda-forge)
 
 ## Expected Folder Structure
 
@@ -71,8 +78,8 @@ Subdirectories are treated as separate "tours":
 
 ```bash
 # Create conda environment
-conda create -n gpxphotomap python=3.11 -y
-conda install -n gpxphotomap -c conda-forge gpxpy pillow -y
+conda create -n lumitrail python=3.11 -y
+conda install -n lumitrail -c conda-forge gpxpy pillow watchdog -y
 ```
 
 ## Usage
@@ -119,6 +126,53 @@ conda run -n lumitrail python server.py -d ./map_output
 
 Opens `http://localhost:8080` with the interactive map.  
 The server serves thumbnails from `map_output/` and original photos directly from their source locations.
+
+## Docker
+
+### Setup
+
+Edit `docker-compose.yml` and point the volume to your photo/GPX directory:
+
+```yaml
+volumes:
+  - /path/to/your/photos:/data:ro   # adjust this
+  - lumitrail_output:/output
+```
+
+Then start the container:
+
+```bash
+docker compose up -d
+```
+
+LumiTrail will scan `/data` on startup, then watch for new files automatically (polling every 30 seconds by default).  
+Open `http://localhost:8080` in your browser.
+
+### Synology NAS
+
+LumiTrail runs on Synology via **Container Manager** (DSM 7.2+):
+
+1. Copy `Dockerfile` and `docker-compose.yml` to a folder on your NAS (e.g. `/volume1/docker/lumitrail`)
+2. In Container Manager → **Projects** → **Create** → select that folder
+3. Adjust the volume path in `docker-compose.yml` to point to your photos (e.g. `/volume1/photos`)
+4. Click **Build** — the container starts, preprocesses, and serves the map
+
+Access the map at `http://<nas-ip>:8080`. The `--watch` flag ensures newly added photos and GPX files are picked up automatically without restarting.
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--watch` | off | Watch input dirs and reprocess new/changed files |
+| `--watch-interval N` | 30 | Poll interval in seconds |
+| `--no-browser` | off | Don't open browser on start (always set in Docker) |
+| `-p PORT` | 8080 | Server port |
+
+Multiple input directories are supported:
+
+```yaml
+command: ["/data/2024", "/data/2025", "-o", "/output", "--watch", "--no-browser"]
+```
 
 ## Architecture
 
