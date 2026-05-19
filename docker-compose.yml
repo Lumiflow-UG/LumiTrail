@@ -1,0 +1,17 @@
+services:
+  lumitrail:
+    build: .
+    image: lumitrail:latest
+    container_name: lumitrail
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /volume1/photos:/data:ro        # adjust to your photo/GPX directory
+      - lumitrail_output:/output
+    command: ["/data", "-o", "/output", "--watch", "--no-browser"]
+
+volumes:
+  lumitrail_output:
