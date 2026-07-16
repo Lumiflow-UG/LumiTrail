@@ -28,6 +28,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .section-title { font-weight: 600; margin-bottom: 4px; font-size: 13px; cursor: pointer; }
 .section-title:hover { color: #0066cc; }
 .tour-list { max-height: 300px; overflow-y: auto; }
+.custom-track-list { max-height: 200px; overflow-y: auto; }
+.custom-track-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 2px; font-size: 12px;
+}
+.custom-track-item .remove-btn {
+  cursor: pointer; color: #999; font-size: 13px; padding: 0 4px;
+}
+.custom-track-item .remove-btn:hover { color: #cc3333; }
 
 /* Toggle buttons */
 .toggle-row { display: flex; gap: 6px; margin-bottom: 8px; }
@@ -176,6 +185,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     <div class="section-title" onclick="toggleAllTours()">Touren (alle an/aus)</div>
     <div id="tourList" class="tour-list"></div>
   </div>
+
+  <div class="section">
+    <div class="section-title">Eigene Tracks</div>
+    <label class="toggle-btn" id="btnLoadGpx" style="display:block;">📂 GPX laden
+      <input type="file" id="gpxFileInput" accept=".gpx" style="display:none">
+    </label>
+    <div id="customTrackList" class="custom-track-list"></div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -185,9 +202,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let map, trackGroup, photoCluster, heatLayer;
+let map, trackGroup, photoCluster, heatLayer, customTrackGroup;
 let trackLayersById = {};  // id -> {layer, data, tour}
 let photoMarkersById = {}; // id -> {marker, data, tour}
+let customTracksById = {}; // id -> {layers, name}
+let customTrackSeq = 0;
 let allTours = [];
 let activeTours = new Set();
 let showTracks = true, showPhotos = true;
@@ -196,6 +215,7 @@ const DEBOUNCE_MS = 300;
 
 const TRACK_COLOR = 'rgba(50, 100, 180, 0.35)';
 const TRACK_COLOR_FULL = 'rgba(50, 100, 180, 0.6)';
+const CUSTOM_TRACK_COLOR = '#e91e63';
 
 // ---------------------------------------------------------------------------
 // Init
@@ -210,12 +230,16 @@ async function init() {
   }).addTo(map);
 
   trackGroup = L.layerGroup().addTo(map);
+  customTrackGroup = L.layerGroup().addTo(map);
   photoCluster = L.markerClusterGroup({
     maxClusterRadius: 50,
     spiderfyOnMaxZoom: true,
     showCoverageOnHover: false,
     disableClusteringAtZoom: 16,
   }).addTo(map);
+
+  // GPX upload works independently of the backend API
+  document.getElementById('gpxFileInput').addEventListener('change', handleGpxFileSelect);
 
   // Load stats + tours
   try {
@@ -428,6 +452,86 @@ async function loadFullTrack(trackId) {
   } catch (e) {
     console.error('Could not load full track:', e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// GPX Upload
+// ---------------------------------------------------------------------------
+function handleGpxFileSelect(e) {
+  const file = e.target.files[0];
+  e.target.value = ''; // erlaubt erneutes Laden derselben Datei
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => parseAndShowGpx(reader.result, file.name);
+  reader.onerror = () => alert('GPX-Datei konnte nicht gelesen werden.');
+  reader.readAsText(file);
+}
+
+function parseAndShowGpx(xmlText, filename) {
+  const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (xml.querySelector('parsererror')) {
+    alert('Ungültige GPX-Datei.');
+    return;
+  }
+
+  // Segmente sammeln: bevorzugt trk/trkseg/trkpt, sonst rte/rtept als Fallback
+  const segments = [];
+  xml.querySelectorAll('trk').forEach(trk => {
+    trk.querySelectorAll('trkseg').forEach(seg => {
+      const pts = [...seg.querySelectorAll('trkpt')]
+        .map(p => [parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))])
+        .filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+      if (pts.length > 1) segments.push(pts);
+    });
+  });
+  if (segments.length === 0) {
+    xml.querySelectorAll('rte').forEach(rte => {
+      const pts = [...rte.querySelectorAll('rtept')]
+        .map(p => [parseFloat(p.getAttribute('lat')), parseFloat(p.getAttribute('lon'))])
+        .filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+      if (pts.length > 1) segments.push(pts);
+    });
+  }
+  if (segments.length === 0) {
+    alert('Keine Track-Punkte in dieser GPX-Datei gefunden.');
+    return;
+  }
+
+  const nameEl = xml.querySelector('trk > name, metadata > name');
+  const name = (nameEl && nameEl.textContent.trim()) || filename;
+
+  const id = 'custom-' + (++customTrackSeq);
+  const layers = segments.map(pts => L.polyline(pts, {
+    color: CUSTOM_TRACK_COLOR, weight: 5, opacity: 0.9,
+    lineCap: 'round', lineJoin: 'round',
+  }).addTo(customTrackGroup));
+  layers.forEach(l => l.bindPopup(`<div class="track-popup"><div class="name">${escHtml(name)}</div></div>`));
+
+  const group = L.featureGroup(layers);
+  customTracksById[id] = { layers, name };
+  map.fitBounds(group.getBounds().pad(0.05));
+  renderCustomTrackList();
+}
+
+function removeCustomTrack(id) {
+  const entry = customTracksById[id];
+  if (!entry) return;
+  entry.layers.forEach(l => customTrackGroup.removeLayer(l));
+  delete customTracksById[id];
+  renderCustomTrackList();
+}
+
+function renderCustomTrackList() {
+  const list = document.getElementById('customTrackList');
+  list.innerHTML = '';
+  Object.entries(customTracksById).forEach(([id, entry]) => {
+    const row = document.createElement('div');
+    row.className = 'custom-track-item';
+    row.innerHTML = `<span>${escHtml(entry.name)}</span>
+      <span class="remove-btn" title="Entfernen">✕</span>`;
+    row.querySelector('.remove-btn').onclick = () => removeCustomTrack(id);
+    list.appendChild(row);
+  });
 }
 
 // ---------------------------------------------------------------------------
