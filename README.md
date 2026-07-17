@@ -25,6 +25,7 @@ Every existing solution falls short in some way:
 - **Photo gallery** — click a photo or cluster to browse nearby photos with arrow navigation
 - **Fullscreen lightbox** — click to view original full-resolution photos
 - **Tour filtering** — toggle tracks/photos by folder (tour)
+- **Load GPX** — load one or more local GPX files directly in the browser, shown as highlighted tracks with click-to-zoom, independent of the preprocessed data
 - **Delta caching** — only new/changed files are re-processed on subsequent runs
 - **File watching** — `--watch` mode automatically picks up new photos and GPX files without restarting
 - **Fast startup** — preprocessed data loads in seconds
