@@ -28,13 +28,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .section-title { font-weight: 600; margin-bottom: 4px; font-size: 13px; cursor: pointer; }
 .section-title:hover { color: #0066cc; }
 .tour-list { max-height: 300px; overflow-y: auto; }
-.custom-track-list { max-height: 200px; overflow-y: auto; }
+.custom-track-list { max-height: 200px; overflow-y: auto; margin-bottom: 6px; }
 .custom-track-item {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 3px 2px; font-size: 12px;
+  padding: 3px 4px; font-size: 12px; cursor: pointer; border-radius: 3px;
 }
+.custom-track-item:hover { background: #f0f0f0; }
+.custom-track-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .custom-track-item .remove-btn {
-  cursor: pointer; color: #999; font-size: 13px; padding: 0 4px;
+  cursor: pointer; color: #999; font-size: 13px; padding: 0 4px; flex-shrink: 0;
 }
 .custom-track-item .remove-btn:hover { color: #cc3333; }
 
@@ -188,10 +190,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 
   <div class="section">
     <div class="section-title">Eigene Tracks</div>
-    <label class="toggle-btn" id="btnLoadGpx" style="display:block;">📂 GPX laden
-      <input type="file" id="gpxFileInput" accept=".gpx" style="display:none">
-    </label>
     <div id="customTrackList" class="custom-track-list"></div>
+    <label class="toggle-btn" id="btnLoadGpx" style="display:block;">📂 GPX laden
+      <input type="file" id="gpxFileInput" accept=".gpx" multiple style="display:none">
+    </label>
   </div>
 </div>
 
@@ -458,20 +460,36 @@ async function loadFullTrack(trackId) {
 // GPX Upload
 // ---------------------------------------------------------------------------
 function handleGpxFileSelect(e) {
-  const file = e.target.files[0];
-  e.target.value = ''; // erlaubt erneutes Laden derselben Datei
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => parseAndShowGpx(reader.result, file.name);
-  reader.onerror = () => alert('GPX-Datei konnte nicht gelesen werden.');
-  reader.readAsText(file);
+  const files = [...e.target.files];
+  e.target.value = ''; // erlaubt erneutes Laden derselben Datei(en)
+  if (files.length === 0) return;
+
+  Promise.all(files.map(readGpxFile)).then(added => {
+    const entries = added.filter(Boolean);
+    if (entries.length === 0) return;
+    const allLayers = entries.flatMap(entry => entry.layers);
+    map.fitBounds(L.featureGroup(allLayers).getBounds().pad(0.05));
+    renderCustomTrackList();
+  });
 }
 
-function parseAndShowGpx(xmlText, filename) {
+function readGpxFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(parseGpxFile(reader.result, file.name));
+    reader.onerror = () => {
+      alert(`GPX-Datei "${file.name}" konnte nicht gelesen werden.`);
+      resolve(null);
+    };
+    reader.readAsText(file);
+  });
+}
+
+function parseGpxFile(xmlText, filename) {
   const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
   if (xml.querySelector('parsererror')) {
-    alert('Ungültige GPX-Datei.');
-    return;
+    alert(`Ungültige GPX-Datei: ${filename}`);
+    return null;
   }
 
   // Segmente sammeln: bevorzugt trk/trkseg/trkpt, sonst rte/rtept als Fallback
@@ -493,8 +511,8 @@ function parseAndShowGpx(xmlText, filename) {
     });
   }
   if (segments.length === 0) {
-    alert('Keine Track-Punkte in dieser GPX-Datei gefunden.');
-    return;
+    alert(`Keine Track-Punkte gefunden in: ${filename}`);
+    return null;
   }
 
   const nameEl = xml.querySelector('trk > name, metadata > name');
@@ -507,10 +525,15 @@ function parseAndShowGpx(xmlText, filename) {
   }).addTo(customTrackGroup));
   layers.forEach(l => l.bindPopup(`<div class="track-popup"><div class="name">${escHtml(name)}</div></div>`));
 
-  const group = L.featureGroup(layers);
-  customTracksById[id] = { layers, name };
-  map.fitBounds(group.getBounds().pad(0.05));
-  renderCustomTrackList();
+  const entry = { layers, name };
+  customTracksById[id] = entry;
+  return entry;
+}
+
+function zoomToCustomTrack(id) {
+  const entry = customTracksById[id];
+  if (!entry) return;
+  map.fitBounds(L.featureGroup(entry.layers).getBounds().pad(0.05));
 }
 
 function removeCustomTrack(id) {
@@ -527,9 +550,13 @@ function renderCustomTrackList() {
   Object.entries(customTracksById).forEach(([id, entry]) => {
     const row = document.createElement('div');
     row.className = 'custom-track-item';
-    row.innerHTML = `<span>${escHtml(entry.name)}</span>
+    row.innerHTML = `<span class="name">${escHtml(entry.name)}</span>
       <span class="remove-btn" title="Entfernen">✕</span>`;
-    row.querySelector('.remove-btn').onclick = () => removeCustomTrack(id);
+    row.onclick = () => zoomToCustomTrack(id);
+    row.querySelector('.remove-btn').onclick = (e) => {
+      e.stopPropagation();
+      removeCustomTrack(id);
+    };
     list.appendChild(row);
   });
 }
