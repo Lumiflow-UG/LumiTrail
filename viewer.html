@@ -27,7 +27,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .section { margin-top: 10px; border-top: 1px solid #eee; padding-top: 8px; }
 .section-title { font-weight: 600; margin-bottom: 4px; font-size: 13px; cursor: pointer; }
 .section-title:hover { color: #0066cc; }
-.tour-list { max-height: 300px; overflow-y: auto; }
 .custom-track-list { max-height: 200px; overflow-y: auto; margin-bottom: 6px; }
 .custom-track-item {
   display: flex; align-items: center; justify-content: space-between;
@@ -151,6 +150,71 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .marker-cluster-medium div { background-color: rgba(204, 102, 0, 0.6); }
 .marker-cluster-large { background-color: rgba(204, 0, 0, 0.3); }
 .marker-cluster-large div { background-color: rgba(204, 0, 0, 0.6); }
+
+/* Date range slider */
+.date-range-section { margin-bottom: 10px; }
+.date-range-labels { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-bottom: 4px; }
+.date-range-slider { position: relative; height: 24px; }
+.date-range-slider input[type=range] {
+  position: absolute; width: 100%; pointer-events: none; appearance: none;
+  background: transparent; z-index: 2;
+}
+.date-range-slider input[type=range]::-webkit-slider-thumb {
+  pointer-events: auto; appearance: none; width: 18px; height: 18px;
+  border-radius: 50%; background: #0066cc; border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer;
+}
+.date-range-slider input[type=range]::-moz-range-thumb {
+  pointer-events: auto; width: 18px; height: 18px; border-radius: 50%;
+  background: #0066cc; border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3); cursor: pointer;
+}
+.date-range-slider .track-bg {
+  position: absolute; top: 8px; left: 9px; right: 9px; height: 4px;
+  background: #ddd; border-radius: 2px; z-index: 1; pointer-events: none;
+}
+.date-range-slider .track-fill {
+  position: absolute; top: 8px; height: 4px; background: #0066cc;
+  border-radius: 2px; z-index: 1; pointer-events: none;
+}
+
+/* Tree view */
+.tree-container { max-height: 500px; overflow-y: auto; }
+.tree-node { position: relative; }
+.tree-folder { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 3px; cursor: pointer; user-select: none; }
+.tree-folder:hover { background: #f0f0f0; }
+.tree-folder.open > .folder-toggle::before { content: '▼'; }
+.tree-folder:not(.open) > .folder-toggle::before { content: '▶'; }
+.folder-toggle { width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #666; flex-shrink: 0; }
+.folder-checkbox { margin: 0; accent-color: #0066cc; }
+.folder-icon { font-size: 12px; }
+.folder-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.folder-count { font-size: 10px; color: #888; padding: 1px 4px; background: #eee; border-radius: 3px; }
+
+.tree-file { display: flex; align-items: center; gap: 4px; padding: 2px 4px 2px 20px; border-radius: 3px; cursor: pointer; user-select: none; font-size: 11px; }
+.tree-file:hover { background: #f0f0f0; }
+.file-checkbox { margin: 0; accent-color: #0066cc; }
+.file-icon { font-size: 11px; width: 14px; text-align: center; }
+.file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-date { font-size: 10px; color: #888; flex-shrink: 0; }
+
+	.tree-children { padding-left: 16px; border-left: 1px solid #eee; margin-left: 10px; }
+	.tree-children.collapsed { display: none; }
+
+	/* Tree action buttons */
+.tree-actions { display: flex; gap: 4px; margin-bottom: 8px; }
+.tree-btn {
+  flex: 1; padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px;
+  background: #f8f8f8; cursor: pointer; font-size: 11px; text-align: center;
+}
+.tree-btn:hover { border-color: #999; background: #eee; }
+.tree-btn:active { background: #ddd; }
+
+/* Scrollbar styling */
+.tree-container::-webkit-scrollbar { width: 6px; }
+.tree-container::-webkit-scrollbar-track { background: transparent; }
+.tree-container::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+.tree-container::-webkit-scrollbar-thumb:hover { background: #aaa; }
 </style>
 </head>
 <body>
@@ -177,15 +241,35 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 <div id="panel">
   <h2>☀ LumiTrail</h2>
   <div id="stats" class="stats"></div>
-  
+
   <div class="toggle-row">
     <div class="toggle-btn active" id="btnTracks" onclick="toggleLayer('tracks')">📍 Tracks</div>
     <div class="toggle-btn active" id="btnPhotos" onclick="toggleLayer('photos')">📷 Fotos</div>
   </div>
-  
+
+  <!-- Date Range Slider -->
+  <div class="section date-range-section">
+    <div class="section-title">Zeitraum</div>
+    <div class="date-range-labels">
+      <span id="dateRangeMin">–</span>
+      <span id="dateRangeMax">–</span>
+    </div>
+    <div class="date-range-slider">
+      <div class="track-bg"></div>
+      <div class="track-fill" id="dateRangeFill"></div>
+      <input type="range" id="dateRangeMinInput" min="0" max="100" value="0" oninput="updateDateRangeMin(this.value)">
+      <input type="range" id="dateRangeMaxInput" min="0" max="100" value="100" oninput="updateDateRangeMax(this.value)">
+    </div>
+  </div>
+
+  <!-- Tree View -->
   <div class="section">
-    <div class="section-title" onclick="toggleAllTours()">Touren (alle an/aus)</div>
-    <div id="tourList" class="tour-list"></div>
+    <div class="section-title">Ordner & Dateien</div>
+    <div class="tree-actions">
+      <button class="tree-btn" id="btnCollapseAll" onclick="collapseAllTree()">Alles zuklappen</button>
+      <button class="tree-btn" id="btnExpandAll" onclick="expandAllTree()">Alles aufklappen</button>
+    </div>
+    <div id="treeContainer" class="tree-container"></div>
   </div>
 
   <div class="section">
@@ -205,15 +289,23 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 // State
 // ---------------------------------------------------------------------------
 let map, trackGroup, photoCluster, heatLayer, customTrackGroup;
-let trackLayersById = {};  // id -> {layer, data, tour}
-let photoMarkersById = {}; // id -> {marker, data, tour}
-let customTracksById = {}; // id -> {layers, name}
+let trackLayersById = {};   // id -> {layer, data, tour}
+let photoMarkersById = {};  // id -> {marker, data, tour}
+let customTracksById = {};  // id -> {layers, name}
 let customTrackSeq = 0;
 let allTours = [];
 let activeTours = new Set();
 let showTracks = true, showPhotos = true;
 let loadTimer = null;
 const DEBOUNCE_MS = 300;
+
+// Tree state
+let treeData = null;           // hierarchical tree from /api/tree
+let dateRange = { min: null, max: null };  // Date objects
+let dateMinTs = 0, dateMaxTs = 0;          // timestamps for slider
+let visibleTrackIds = new Set();           // track IDs to show
+let visiblePhotoIds = new Set();           // photo IDs to show
+let expandedFolders = new Set();           // folder paths that are expanded
 
 const TRACK_COLOR = 'rgba(50, 100, 180, 0.35)';
 const TRACK_COLOR_FULL = 'rgba(50, 100, 180, 0.6)';
@@ -243,36 +335,28 @@ async function init() {
   // GPX upload works independently of the backend API
   document.getElementById('gpxFileInput').addEventListener('change', handleGpxFileSelect);
 
-  // Load stats + tours
+  // Load stats + tree
   try {
-    const [statsResp, toursResp] = await Promise.all([
-      fetch('/api/stats'), fetch('/api/tours')
+    const [statsResp, treeResp] = await Promise.all([
+      fetch('/api/stats'), fetch('/api/tree')
     ]);
     const stats = await statsResp.json();
-    allTours = await toursResp.json();
+    treeData = await treeResp.json();
 
     document.getElementById('stats').textContent =
-      `${stats.tracks} Tracks \u00b7 ${stats.photos} Fotos \u00b7 ${stats.tours} Touren`;
+      `${stats.tracks} Tracks · ${stats.photos} Fotos · ${stats.tours} Touren`;
 
-    activeTours = new Set(allTours);
-    const tourList = document.getElementById('tourList');
-    allTours.forEach(tour => {
-      const label = document.createElement('label');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = true;
-      cb.dataset.tour = tour;
-      cb.addEventListener('change', () => {
-        if (cb.checked) activeTours.add(tour);
-        else activeTours.delete(tour);
-        loadViewport();
-      });
-      label.appendChild(cb);
-      label.appendChild(document.createTextNode(tour));
-      tourList.appendChild(label);
-    });
+    // Initialize date range from tree
+    initDateRange(treeData);
+
+    // All visible initially
+    collectAllVisibleIds(treeData);
+
+    // Render tree
+    renderTree();
   } catch (e) {
     document.getElementById('loading').textContent = 'Fehler: API nicht erreichbar!';
+    console.error(e);
     return;
   }
 
@@ -308,23 +392,578 @@ async function init() {
   });
 }
 
+function initDateRange(nodes) {
+  let minTs = Infinity, maxTs = -Infinity;
+  function walk(n) {
+    if (n.date_min) {
+      const ts = new Date(n.date_min).getTime();
+      if (ts < minTs) minTs = ts;
+    }
+    if (n.date_max) {
+      const ts = new Date(n.date_max).getTime();
+      if (ts > maxTs) maxTs = ts;
+    }
+    if (n.children) n.children.forEach(walk);
+    if (n.files) n.files.forEach(f => {
+      if (f.date) {
+        const ts = new Date(f.date).getTime();
+        if (ts < minTs) minTs = ts;
+        if (ts > maxTs) maxTs = ts;
+      }
+    });
+  }
+  nodes.forEach(walk);
+  if (minTs !== Infinity && maxTs !== -Infinity) {
+    dateMinTs = minTs;
+    dateMaxTs = maxTs;
+    dateRange.min = new Date(minTs);
+    dateRange.max = new Date(maxTs);
+    updateDateRangeDisplay();
+    updateDateRangeFill();
+  }
+}
+
+function collectAllVisibleIds(nodes) {
+  visibleTrackIds.clear();
+  visiblePhotoIds.clear();
+  expandedFolders.clear();
+  function walk(n, path) {
+    // Expand all folders by default
+    expandedFolders.add(path);
+    if (n.files) {
+      n.files.forEach(f => {
+        if (f.type === 'track') visibleTrackIds.add(f.id);
+        else visiblePhotoIds.add(f.id);
+      });
+    }
+    if (n.children) {
+      n.children.forEach(c => walk(c, c.path));
+    }
+  }
+  nodes.forEach(n => walk(n, n.path));
+}
+
+// ---------------------------------------------------------------------------
+// Tree Rendering
+// ---------------------------------------------------------------------------
+function renderTree() {
+  const container = document.getElementById('treeContainer');
+  container.innerHTML = '';
+  if (!treeData) return;
+
+  treeData.forEach(node => {
+    container.appendChild(renderTreeNode(node, 0));
+  });
+}
+
+function renderTreeNode(node, depth) {
+  const div = document.createElement('div');
+  div.className = 'tree-node';
+  div.dataset.path = node.path;
+
+  // Folder row
+  const folderDiv = document.createElement('div');
+  folderDiv.className = 'tree-folder' + (expandedFolders.has(node.path) ? ' open' : '');
+  folderDiv.innerHTML = `
+    <span class="folder-toggle" onclick="toggleFolder('${escJs(node.path)}', event)"></span>
+    <input type="checkbox" class="folder-checkbox" ${visibleCount(node) > 0 ? 'checked' : ''} onchange="toggleFolderVisibility('${escJs(node.path)}', this.checked)">
+    <span class="folder-icon">📁</span>
+    <span class="folder-name" title="${escHtml(node.path)}" onclick="zoomToFolder('${escJs(node.path)}', event)">${escHtml(node.name)}</span>
+    <span class="folder-count">${node.track_count} T / ${node.photo_count} F</span>
+  `;
+  div.appendChild(folderDiv);
+
+  // Children container
+  const childrenDiv = document.createElement('div');
+  childrenDiv.className = 'tree-children' + (expandedFolders.has(node.path) ? '' : ' collapsed');
+  childrenDiv.id = 'children-' + node.path.replace(/\//g, '-');
+
+  // Files
+  if (node.files && node.files.length > 0) {
+    node.files.forEach(file => {
+      childrenDiv.appendChild(renderFileEntry(file, node.path));
+    });
+  }
+
+  // Subfolders
+  if (node.children) {
+    node.children.forEach(child => {
+      childrenDiv.appendChild(renderTreeNode(child, depth + 1));
+    });
+  }
+
+  div.appendChild(childrenDiv);
+  return div;
+}
+
+function renderFileEntry(file, folderPath) {
+  const div = document.createElement('div');
+  div.className = 'tree-file';
+  const dateStr = file.date ? new Date(file.date).toLocaleDateString('de-DE') : '';
+  const icon = file.type === 'track' ? '📍' : '📷';
+  const isTrackVisible = visibleTrackIds.has(file.id);
+  const isPhotoVisible = visiblePhotoIds.has(file.id);
+  const checked = (file.type === 'track' ? isTrackVisible : isPhotoVisible) ? 'checked' : '';
+  div.innerHTML = `
+    <input type="checkbox" class="file-checkbox" ${checked} onclick="event.stopPropagation()" onchange="toggleFileVisibility('${escJs(file.id)}', '${escJs(file.type)}', this.checked)">
+    <span class="file-icon">${icon}</span>
+    <span class="file-name" title="${escHtml(file.name)}" onclick="zoomToItem('${escJs(file.id)}', '${escJs(file.type)}', event)">${escHtml(file.name)}</span>
+    <span class="file-date">${dateStr}</span>
+  `;
+  return div;
+}
+
+function visibleCount(node) {
+  let count = 0;
+  if (node.files) count += node.files.length;
+  if (node.children) node.children.forEach(c => count += visibleCount(c));
+  return count;
+}
+
+function toggleFolder(path, event) {
+  event.stopPropagation();
+  const childrenDiv = document.getElementById('children-' + path.replace(/\//g, '-'));
+  const folderDiv = childrenDiv.previousElementSibling;
+  if (expandedFolders.has(path)) {
+    expandedFolders.delete(path);
+    childrenDiv.classList.add('collapsed');
+    folderDiv.classList.remove('open');
+  } else {
+    expandedFolders.add(path);
+    childrenDiv.classList.remove('collapsed');
+    folderDiv.classList.add('open');
+  }
+}
+
+function toggleFolderVisibility(path, checked) {
+  function walk(node) {
+    if (node.path === path) {
+      setVisibilityRecursive(node, checked);
+      return true;
+    }
+    if (node.children) {
+      for (const c of node.children) {
+        if (walk(c)) return true;
+      }
+    }
+    return false;
+  }
+  walk({ children: treeData, path: '' });
+  // Jede Ordner-Checkbox wird aus den Sichtbarkeits-Sets neu synchronisiert,
+  // damit angeklickter Ordner, alle Vorfahren UND alle Nachfahren konsistent
+  // sind (kein Ordner wird übersehen).
+  syncAllFolderCheckboxes();
+  // Datei-Checkboxen des gesamten Unterbaums setzen
+  updateChildCheckboxes(path, checked);
+  loadViewport();
+}
+
+function updateAllFolderCheckboxes(changedPath) {
+  // Update checkbox for the changed folder
+  updateFolderCheckboxes(changedPath);
+  // Also update all ancestor folders up to root
+  let currentPath = changedPath;
+  while (currentPath.includes('/')) {
+    currentPath = currentPath.substring(0, currentPath.lastIndexOf('/'));
+    updateFolderCheckboxes(currentPath);
+  }
+}
+
+function setVisibilityRecursive(node, checked) {
+  if (node.files) {
+    node.files.forEach(f => {
+      if (f.type === 'track') {
+        if (checked) visibleTrackIds.add(f.id);
+        else visibleTrackIds.delete(f.id);
+      } else {
+        if (checked) visiblePhotoIds.add(f.id);
+        else visiblePhotoIds.delete(f.id);
+      }
+    });
+  }
+  if (node.children) {
+    node.children.forEach(c => setVisibilityRecursive(c, checked));
+  }
+}
+
+function updateFolderCheckboxes(path, node) {
+  // Update checkbox state for this folder (with indeterminate support)
+  const checkbox = document.querySelector(`[data-path="${escJs(path)}"] .folder-checkbox`);
+  if (!checkbox) return;
+
+  if (!node) node = findNode(treeData, path);
+  if (!node) return;
+
+  function checkVisibility(node) {
+    let allVisible = true;
+    let someVisible = false;
+
+    if (node.files) {
+      for (const f of node.files) {
+        const isVisible = f.type === 'track' ? visibleTrackIds.has(f.id) : visiblePhotoIds.has(f.id);
+        if (isVisible) someVisible = true;
+        else allVisible = false;
+      }
+    }
+    if (node.children) {
+      for (const c of node.children) {
+        const childResult = checkVisibility(c);
+        if (childResult.all) {
+          // Ein komplett sichtbarer Unterordner bedeutet: mindestens
+          // ein Teil ist sichtbar -> Elternordner ist "teilweise gewählt".
+          someVisible = true;
+        } else if (childResult.some) {
+          allVisible = false;
+          someVisible = true;
+        } else {
+          // child none visible
+          allVisible = false;
+        }
+      }
+    }
+    return { all: allVisible, some: someVisible };
+  }
+
+  function findNode(nodes, p) {
+    for (const n of nodes) {
+      if (n.path === p) return n;
+      if (n.children) {
+        const found = findNode(n.children, p);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const result = checkVisibility(node);
+  checkbox.checked = result.all;
+  checkbox.indeterminate = !result.all && result.some;
+}
+
+function updateChildCheckboxes(path, checked) {
+  // Update all descendant file checkboxes in the DOM
+  const container = document.getElementById('children-' + path.replace(/\//g, '-'));
+  if (container) {
+    container.querySelectorAll('.file-checkbox').forEach(cb => {
+      cb.checked = checked;
+    });
+  }
+}
+
+function syncAllFolderCheckboxes() {
+  // Recompute checkbox state (checked/indeterminate) for EVERY folder from
+  // the current visibility sets. O(n) - called after each toggle so no
+  // folder (Vorfahr, Nachfahre oder angeklickter Ordner) übersehen wird.
+  function walk(nodes) {
+    for (const n of nodes) {
+      updateFolderCheckboxes(n.path, n);
+      if (n.children) walk(n.children);
+    }
+  }
+  walk(treeData);
+}
+
+function toggleFileVisibility(id, type, checked) {
+  if (type === 'track') {
+    if (checked) visibleTrackIds.add(id);
+    else visibleTrackIds.delete(id);
+  } else {
+    if (checked) visiblePhotoIds.add(id);
+    else visiblePhotoIds.delete(id);
+  }
+  // Update ancestor folder checkboxes
+  const path = findFilePathInTree(treeData, id);
+  if (path) {
+    updateAllFolderCheckboxes(path);
+  }
+  loadViewport();
+}
+
+function findFilePathInTree(nodes, fileId) {
+  for (const n of nodes) {
+    if (n.files && n.files.some(f => f.id === fileId)) {
+      return n.path;
+    }
+    if (n.children) {
+      const found = findFilePathInTree(n.children, fileId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function collapseAllTree() {
+  expandedFolders.clear();
+  document.querySelectorAll('.tree-folder').forEach(f => f.classList.remove('open'));
+  document.querySelectorAll('.tree-children').forEach(c => c.classList.add('collapsed'));
+}
+
+function expandAllTree() {
+  function addAll(nodes) {
+    nodes.forEach(n => {
+      expandedFolders.add(n.path);
+      if (n.children) addAll(n.children);
+    });
+  }
+  addAll(treeData);
+  document.querySelectorAll('.tree-folder').forEach(f => f.classList.add('open'));
+  document.querySelectorAll('.tree-children').forEach(c => c.classList.remove('collapsed'));
+}
+
+// ---------------------------------------------------------------------------
+// Zoom to item / folder from tree clicks
+// ---------------------------------------------------------------------------
+function zoomToItem(id, type, event) {
+  event.stopPropagation();
+  if (type === 'photo') {
+    // Find photo marker and open gallery + zoom
+    const entry = photoMarkersById[id];
+    if (entry) {
+      openGalleryAt(entry.marker);
+      map.setView([entry.data.lat, entry.data.lon], 16);
+    } else {
+      // Photo not in viewport - fetch from tree data and load
+      loadPhotoAndZoom(id);
+    }
+  } else if (type === 'track') {
+    // Find track layer and zoom to bounds
+    const entry = trackLayersById[id];
+    if (entry) {
+      map.fitBounds(entry.layer.getBounds().pad(0.1));
+    } else {
+      // Track not in viewport - load and zoom
+      loadTrackAndZoom(id);
+    }
+  }
+}
+
+async function loadPhotoAndZoom(photoId) {
+  try {
+    // Find photo in tree data first
+    const photoInfo = findPhotoInTree(treeData, photoId);
+    if (!photoInfo) return;
+
+    // Fetch photo data directly from API (no viewport filter)
+    const resp = await fetch(`/api/photos?south=-90&north=90&west=-180&east=180`);
+    const photos = await resp.json();
+    const photoData = photos.find(p => p.id === photoId);
+    if (!photoData) return;
+
+    // Ensure photo is visible
+    visiblePhotoIds.add(photoId);
+    await loadViewport();
+
+    // Try to open gallery with the marker
+    const entry = photoMarkersById[photoId];
+    if (entry) {
+      openGalleryAt(entry.marker);
+      map.setView([entry.data.lat, entry.data.lon], 16);
+    } else {
+      // Fallback: create temporary marker and open gallery
+      const icon = L.divIcon({
+        className: 'photo-marker',
+        html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${photoData.thumb}') center/cover;"></div>`,
+        iconSize: [36, 36], iconAnchor: [18, 18],
+      });
+      const tempMarker = L.marker([photoData.lat, photoData.lon], { icon });
+      tempMarker._photoId = photoId;
+      tempMarker.addTo(map);
+      tempMarker.on('click', () => openGalleryAt(tempMarker));
+      openGalleryAt(tempMarker);
+      map.setView([photoData.lat, photoData.lon], 16);
+      setTimeout(() => map.removeLayer(tempMarker), 3000);
+    }
+  } catch (e) {
+    console.error('Failed to load photo:', e);
+  }
+}
+
+async function loadTrackAndZoom(trackId) {
+  try {
+    // Fetch single track directly from API (no viewport filter)
+    const resp = await fetch(`/api/track/${trackId}`);
+    const points = await resp.json();
+    const latlngs = points.map(p => [p[0], p[1]]);
+
+    // Ensure track is visible
+    visibleTrackIds.add(trackId);
+    await loadViewport();
+
+    // Zoom to track bounds
+    const entry = trackLayersById[trackId];
+    if (entry) {
+      map.fitBounds(entry.layer.getBounds().pad(0.1));
+    } else if (latlngs.length > 0) {
+      // Fallback: create temporary polyline and zoom
+      const tempLine = L.polyline(latlngs, { color: TRACK_COLOR, weight: 3, opacity: 0.5 });
+      tempLine.addTo(map);
+      map.fitBounds(tempLine.getBounds().pad(0.1));
+      setTimeout(() => map.removeLayer(tempLine), 2000);
+    }
+  } catch (e) {
+    console.error('Failed to load track:', e);
+  }
+}
+
+function findPhotoInTree(nodes, photoId) {
+  for (const n of nodes) {
+    if (n.files) {
+      const found = n.files.find(f => f.id === photoId && f.type === 'photo');
+      if (found) return found;
+    }
+    if (n.children) {
+      const found = findPhotoInTree(n.children, photoId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function zoomToFolder(path, event) {
+  event.stopPropagation();
+  // Find all items in this folder path
+  const bounds = [];
+
+  // Find tracks in this folder path
+  Object.values(trackLayersById).forEach(entry => {
+    if (entry.data.tour && (entry.data.tour.startsWith(path + '/') || entry.data.tour === path)) {
+      bounds.push(entry.layer.getBounds());
+    }
+  });
+
+  // Find photos in this folder path
+  Object.values(photoMarkersById).forEach(entry => {
+    if (entry.data.tour && (entry.data.tour.startsWith(path + '/') || entry.data.tour === path)) {
+      bounds.push(L.latLngBounds([entry.data.lat, entry.data.lon]));
+    }
+  });
+
+  if (bounds.length > 0) {
+    const combined = bounds.reduce((acc, b) => acc.extend(b), L.latLngBounds(bounds[0]));
+    map.fitBounds(combined.pad(0.1));
+  } else {
+    // No items in viewport - fetch from API
+    fetchFolderBoundsFromAPI(path).then(apiBounds => {
+      if (apiBounds.length > 0) {
+        const combined = apiBounds.reduce((acc, b) => acc.extend(b), L.latLngBounds(apiBounds[0]));
+        map.fitBounds(combined.pad(0.1));
+      }
+    });
+  }
+}
+
+async function fetchFolderBoundsFromAPI(folderPath) {
+  try {
+    // Fetch all tracks and photos for this folder
+    const [tracksResp, photosResp] = await Promise.all([
+      fetch(`/api/tracks?south=-90&north=90&west=-180&east=180`),
+      fetch(`/api/photos?south=-90&north=90&west=-180&east=180`)
+    ]);
+    const [tracks, photos] = await Promise.all([tracksResp.json(), photosResp.json()]);
+
+    const bounds = [];
+    tracks.forEach(t => {
+      if (t.tour && (t.tour.startsWith(folderPath + '/') || t.tour === folderPath)) {
+        bounds.push(L.latLngBounds(t.bounds[0], t.bounds[1]));
+      }
+    });
+    photos.forEach(p => {
+      if (p.tour && (p.tour.startsWith(folderPath + '/') || p.tour === folderPath)) {
+        bounds.push(L.latLngBounds([p.lat, p.lon]));
+      }
+    });
+    return bounds;
+  } catch (e) {
+    console.error('Failed to fetch folder bounds:', e);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Date Range Slider
+// ---------------------------------------------------------------------------
+function updateDateRangeMin(val) {
+  const pct = parseInt(val);
+  const ts = dateMinTs + (dateMaxTs - dateMinTs) * (pct / 100);
+  dateRange.min = new Date(ts);
+  // Ensure min <= max
+  if (dateRange.min > dateRange.max) dateRange.min = new Date(dateRange.max);
+  updateDateRangeDisplay();
+  updateDateRangeFill();
+  loadViewport();
+}
+
+function updateDateRangeMax(val) {
+  const pct = parseInt(val);
+  const ts = dateMinTs + (dateMaxTs - dateMinTs) * (pct / 100);
+  dateRange.max = new Date(ts);
+  // Ensure max >= min
+  if (dateRange.max < dateRange.min) dateRange.max = new Date(dateRange.min);
+  updateDateRangeDisplay();
+  updateDateRangeFill();
+  loadViewport();
+}
+
+function updateDateRangeDisplay() {
+  const minEl = document.getElementById('dateRangeMin');
+  const maxEl = document.getElementById('dateRangeMax');
+  if (dateRange.min) minEl.textContent = dateRange.min.toLocaleDateString('de-DE');
+  if (dateRange.max) maxEl.textContent = dateRange.max.toLocaleDateString('de-DE');
+}
+
+function updateDateRangeFill() {
+  const fill = document.getElementById('dateRangeFill');
+  const minInput = document.getElementById('dateRangeMinInput');
+  const maxInput = document.getElementById('dateRangeMaxInput');
+  if (dateMinTs === dateMaxTs) {
+    minInput.value = 0;
+    maxInput.value = 100;
+    fill.style.left = '0%';
+    fill.style.width = '100%';
+    return;
+  }
+  const minPct = ((dateRange.min.getTime() - dateMinTs) / (dateMaxTs - dateMinTs)) * 100;
+  const maxPct = ((dateRange.max.getTime() - dateMinTs) / (dateMaxTs - dateMinTs)) * 100;
+  minInput.value = Math.round(minPct);
+  maxInput.value = Math.round(maxPct);
+  fill.style.left = minPct + '%';
+  fill.style.width = (maxPct - minPct) + '%';
+}
+
 // ---------------------------------------------------------------------------
 // Lazy load viewport data
 // ---------------------------------------------------------------------------
+let viewportLoadToken = 0;
 async function loadViewport() {
-  const b = map.getBounds();
-  const params = new URLSearchParams({
+  // Nur der jeweils letzte Aufruf darf den Karten-Zustand verändern.
+  // Überlappende Aufrufe (z.B. moveend + direkte Aufrufe) könnten sonst
+  // Layer zeitversetzt entfernen/hinzufügen und die Karte "einfrieren".
+  const myToken = ++viewportLoadToken;
+
+  let b, params, tracksResp, photosResp;
+  try {
+  b = map.getBounds();
+  params = new URLSearchParams({
     south: b.getSouth(), north: b.getNorth(),
     west: b.getWest(), east: b.getEast(),
   });
-  const tourParam = activeTours.size < allTours.length
-    ? Array.from(activeTours).join(',') : '';
-  if (tourParam) params.set('tours', tourParam);
+  // Date range params
+  if (dateRange.min) params.set('date_min', dateRange.min.toISOString().split('T')[0]);
+  if (dateRange.max) params.set('date_max', dateRange.max.toISOString().split('T')[0]);
 
-  const [tracksResp, photosResp] = await Promise.all([
+  const [tr, pr] = await Promise.all([
     showTracks ? fetch(`/api/tracks?${params}`) : Promise.resolve(null),
     showPhotos ? fetch(`/api/photos?${params}`) : Promise.resolve(null),
   ]);
+  tracksResp = tr;
+  photosResp = pr;
+  } catch (e) {
+    console.error('loadViewport fetch failed:', e);
+    return;
+  }
+
+  // Ein neuerer Load hat begonnen - Ergebnisse verwerfen.
+  if (myToken !== viewportLoadToken) return;
 
   // --- Tracks ---
   if (tracksResp) {
@@ -339,9 +978,10 @@ async function loadViewport() {
       }
     }
 
-    // Add new tracks
+    // Add new tracks (filter by visibleTrackIds)
     const heatPoints = [];
     tracks.forEach(track => {
+      if (!visibleTrackIds.has(track.id)) return; // filtered out by tree
       const latlngs = track.overview.map(p => [p[0], p[1]]);
       latlngs.forEach(ll => heatPoints.push([ll[0], ll[1], 0.4]));
 
@@ -358,13 +998,13 @@ async function loadViewport() {
         <div class="track-popup">
           <div class="name">${escHtml(track.name)}</div>
           <div class="meta">
-            ${dateStr ? '\ud83d\udcc5 ' + dateStr + '<br>' : ''}
-            \ud83d\udcca ${track.point_count} Punkte<br>
-            \ud83d\udcc1 ${escHtml(track.tour)}<br>
+            ${dateStr ? '📃 ' + dateStr + '<br>' : ''}
+            📊 ${track.point_count} Punkte<br>
+            📁 ${escHtml(track.tour)}<br>
             <a href="#" onclick="loadFullTrack('${track.id}'); return false;">
-              \ud83d\udd0d Volle Aufl\u00f6sung laden
+              🔍 Volle AuflÃ¶sung laden
             </a>
-            ${folderPath ? '<br><a href="#" class="copy-path" data-path="' + escHtml(folderPath) + '" onclick="copyPath(this.dataset.path, this); return false;">\ud83d\udccb Pfad kopieren</a>' : ''}
+            ${folderPath ? '<br><a href="#" class="copy-path" data-path="' + escHtml(folderPath) + '" onclick="copyPath(this.dataset.path, this); return false;">📋 Pfad kopieren</a>' : ''}
           </div>
         </div>
       `);
@@ -406,8 +1046,9 @@ async function loadViewport() {
       }
     }
 
-    // Add new photos
+    // Add new photos (filter by visiblePhotoIds)
     photos.forEach(photo => {
+      if (!visiblePhotoIds.has(photo.id)) return; // filtered out by tree
       if (photoMarkersById[photo.id]) return;
 
       const icon = L.divIcon({
@@ -488,7 +1129,7 @@ function readGpxFile(file) {
 function parseGpxFile(xmlText, filename) {
   const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
   if (xml.querySelector('parsererror')) {
-    alert(`Ungültige GPX-Datei: ${filename}`);
+    alert(`UngÃ¼ltige GPX-Datei: ${filename}`);
     return null;
   }
 
@@ -575,19 +1216,6 @@ function toggleLayer(which) {
   loadViewport();
 }
 
-function toggleAllTours() {
-  const allOn = activeTours.size === allTours.length;
-  const checkboxes = document.querySelectorAll('#tourList input');
-  if (allOn) {
-    activeTours.clear();
-    checkboxes.forEach(cb => cb.checked = false);
-  } else {
-    allTours.forEach(t => activeTours.add(t));
-    checkboxes.forEach(cb => cb.checked = true);
-  }
-  loadViewport();
-}
-
 // ---------------------------------------------------------------------------
 // Util
 // ---------------------------------------------------------------------------
@@ -597,11 +1225,15 @@ function escHtml(s) {
   return div.innerHTML;
 }
 
+function escJs(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
 function copyPath(path, el) {
   navigator.clipboard.writeText(path).then(() => {
     const span = document.createElement('span');
     span.className = 'copy-ok';
-    span.textContent = ' ✓ kopiert';
+    span.textContent = ' ✓" kopiert';
     el.parentNode.insertBefore(span, el.nextSibling);
     setTimeout(() => span.remove(), 1500);
   });
@@ -632,9 +1264,10 @@ function openGalleryNearby(latlng, clusterMarkers) {
         .map(p => p.data);
     }
   } else {
+    // Einzelnes Foto: alle sichtbaren Fotos einbeziehen, damit in der
+    // Galerie vor/zurück geblättert werden kann (nicht nur die im 300-m-Umkreis).
     nearby = allPhotos
-      .filter(p => activeTours.has(p.tour))
-      .filter(p => latlng.distanceTo(L.latLng(p.data.lat, p.data.lon)) < NEARBY_RADIUS)
+      .filter(p => visiblePhotoIds.has(p.data.id))
       .map(p => p.data);
   }
 
@@ -659,7 +1292,7 @@ function renderGallery() {
   document.getElementById('gallery-img').src = photo.thumb;
   const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
   document.getElementById('gallery-meta').innerHTML =
-    `\ud83d\udcf7 ${escHtml(photo.filename)}${dateStr ? ' &middot; ' + dateStr : ''} &middot; ${escHtml(photo.tour)} &middot; ${galleryIdx + 1}/${galleryPhotos.length}`;
+    `📷 ${escHtml(photo.filename)}${dateStr ? ' · ' + dateStr : ''} · ${escHtml(photo.tour)} · ${galleryIdx + 1}/${galleryPhotos.length}`;
 
   document.getElementById('gallery-prev').disabled = galleryIdx === 0;
   document.getElementById('gallery-next').disabled = galleryIdx === galleryPhotos.length - 1;
@@ -701,7 +1334,7 @@ function updateLightbox() {
   document.getElementById('lightbox-img').src = `/original/${photo.id}.jpg`;
   const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
   document.getElementById('lightbox-meta').innerHTML =
-    `\ud83d\udcf7 ${escHtml(photo.filename)}${dateStr ? ' &middot; ' + dateStr : ''} &middot; ${escHtml(photo.tour)} &middot; ${galleryIdx + 1}/${galleryPhotos.length}`;
+    `📷 ${escHtml(photo.filename)}${dateStr ? ' · ' + dateStr : ''} · ${escHtml(photo.tour)} · ${galleryIdx + 1}/${galleryPhotos.length}`;
   document.getElementById('lb-prev').disabled = galleryIdx === 0;
   document.getElementById('lb-next').disabled = galleryIdx === galleryPhotos.length - 1;
   renderGallery();
@@ -716,6 +1349,8 @@ document.getElementById('lightbox').addEventListener('click', (e) => {
 });
 
 document.getElementById('gallery-img').addEventListener('click', () => openLightbox());
+
+document.getElementById('lightbox-img').addEventListener('click', closeLightbox);
 
 document.addEventListener('keydown', (e) => {
   const galleryOpen = document.getElementById('gallery').style.display === 'block';

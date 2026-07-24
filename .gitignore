@@ -4,3 +4,8 @@ build/**
 *.spec
 __pycache__/**
 Thumbs.db
+
+# Testdaten
+test_data/**
+test_photos/**
+tracks.json

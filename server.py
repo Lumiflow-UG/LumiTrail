@@ -25,6 +25,13 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
 
     db_path = ""  # set by server setup
 
+    def end_headers(self):
+        # Nie cached ausliefern, damit Änderungen an index.html (viewer.html)
+        # sofort sichtbar werden.
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Pragma', 'no-cache')
+        super().end_headers()
+
     def _get_db(self):
         """Get a thread-local SQLite connection (read-only)."""
         return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
@@ -47,6 +54,8 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
                 self.api_stats()
             elif path == '/api/tours':
                 self.api_tours()
+            elif path == '/api/tree':
+                self.api_tree()
             elif path == '/api/photos':
                 self.api_photos(params)
             elif path == '/api/tracks':
@@ -79,13 +88,98 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         conn.close()
         self.send_json([r[0] for r in rows])
 
+    def api_tree(self):
+        """Build hierarchical folder tree from photos and tracks."""
+        conn = self._get_db()
+
+        # Fetch all photos and tracks with their source paths and dates
+        photos = conn.execute(
+            "SELECT source, date, id, filename, tour FROM photos"
+        ).fetchall()
+        tracks = conn.execute(
+            "SELECT source, date, id, name, tour FROM tracks"
+        ).fetchall()
+        conn.close()
+
+        # Build tree structure
+        root = {"name": "", "path": "", "type": "folder", "children": {}, "files": [],
+                "track_count": 0, "photo_count": 0, "date_min": None, "date_max": None}
+
+        def update_counts_upwards(node, type_, date):
+            """Update counts and date range up the tree to root."""
+            while node is not None:
+                if type_ == 'track':
+                    node['track_count'] += 1
+                else:
+                    node['photo_count'] += 1
+                if date:
+                    if node['date_min'] is None or date < node['date_min']:
+                        node['date_min'] = date
+                    if node['date_max'] is None or date > node['date_max']:
+                        node['date_max'] = date
+                # Move to parent (we need to track parents)
+                # For now, we'll use a different approach - build with parent refs
+                node = node.get('_parent')
+
+        def add_to_tree(source, type_, id_, name, date, tour):
+            # Normalize path separators (Windows uses backslash, Unix uses forward slash)
+            import re
+            parts = re.split(r'[/\\\\]+', source)
+            if len(parts) < 2:
+                return  # no folder structure
+            folder_parts = parts[:-1]  # all but filename
+            node = root
+            path_parts = []
+            for part in folder_parts:
+                path_parts.append(part)
+                path = '/'.join(path_parts)
+                if part not in node['children']:
+                    new_node = {"name": part, "path": path, "type": "folder",
+                                "children": {}, "files": [],
+                                "track_count": 0, "photo_count": 0,
+                                "date_min": None, "date_max": None,
+                                "_parent": node}
+                    node['children'][part] = new_node
+                node = node['children'][part]
+            # Add file to leaf folder
+            file_info = {"id": id_, "name": name, "type": type_, "date": date, "tour": tour}
+            node['files'].append(file_info)
+            # Update counts up the tree
+            update_counts_upwards(node, type_, date)
+
+        for src, date, id_, filename, tour in photos:
+            add_to_tree(src, 'photo', id_, filename, date, tour)
+
+        for src, date, id_, name, tour in tracks:
+            add_to_tree(src, 'track', id_, name, date, tour)
+
+        # Convert children dicts to lists for JSON serialization
+        def convert_node(node):
+            result = {
+                "name": node["name"],
+                "path": node["path"],
+                "type": node["type"],
+                "track_count": node["track_count"],
+                "photo_count": node["photo_count"],
+                "date_min": node["date_min"],
+                "date_max": node["date_max"],
+                "children": [convert_node(c) for c in sorted(node["children"].values(), key=lambda x: x["name"].lower())],
+                "files": sorted(node["files"], key=lambda x: (x["type"], x["name"].lower()))
+            }
+            return result
+
+        tree = convert_node(root)
+        self.send_json(tree["children"])
+
     def api_photos(self, params):
-        """Return photos within bounds. Params: south, west, north, east, tours (comma-sep)."""
+        """Return photos within bounds. Params: south, west, north, east, tours (comma-sep), date_min, date_max."""
         south = float(params.get('south', ['-90'])[0])
         north = float(params.get('north', ['90'])[0])
         west = float(params.get('west', ['-180'])[0])
         east = float(params.get('east', ['180'])[0])
         tour_filter = params.get('tours', [''])[0]
+        date_min = params.get('date_min', [''])[0]
+        date_max = params.get('date_max', [''])[0]
 
         conn = self._get_db()
         sql = "SELECT id, lat, lon, date, tour, thumb, filename FROM photos WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?"
@@ -96,6 +190,12 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             placeholders = ','.join('?' * len(tours))
             sql += f" AND tour IN ({placeholders})"
             args.extend(tours)
+        if date_min:
+            sql += " AND date >= ?"
+            args.append(date_min)
+        if date_max:
+            sql += " AND date <= ?"
+            args.append(date_max)
 
         rows = conn.execute(sql, args).fetchall()
         conn.close()
@@ -108,12 +208,14 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         self.send_json(photos)
 
     def api_tracks(self, params):
-        """Return track overviews within bounds."""
+        """Return track overviews within bounds. Params: south, west, north, east, tours (comma-sep), date_min, date_max."""
         south = float(params.get('south', ['-90'])[0])
         north = float(params.get('north', ['90'])[0])
         west = float(params.get('west', ['-180'])[0])
         east = float(params.get('east', ['180'])[0])
         tour_filter = params.get('tours', [''])[0]
+        date_min = params.get('date_min', [''])[0]
+        date_max = params.get('date_max', [''])[0]
 
         conn = self._get_db()
         # Filter tracks whose bounding box intersects the viewport
@@ -133,6 +235,10 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             if tour_filter:
                 if r[3] not in tour_filter.split(','):
                     continue
+            if date_min and r[2] and r[2] < date_min:
+                continue
+            if date_max and r[2] and r[2] > date_max:
+                continue
             result.append({
                 "id": r[0], "name": r[1], "date": r[2], "tour": r[3],
                 "point_count": r[4], "overview": json.loads(r[5]),

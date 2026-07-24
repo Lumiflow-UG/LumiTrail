@@ -225,7 +225,9 @@ def init_db(db_path: str) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_photos_lat ON photos(lat);
         CREATE INDEX IF NOT EXISTS idx_photos_lon ON photos(lon);
         CREATE INDEX IF NOT EXISTS idx_photos_tour ON photos(tour);
+        CREATE INDEX IF NOT EXISTS idx_photos_date ON photos(date);
         CREATE INDEX IF NOT EXISTS idx_tracks_tour ON tracks(tour);
+        CREATE INDEX IF NOT EXISTS idx_tracks_date ON tracks(date);
     """)
     conn.commit()
     return conn
