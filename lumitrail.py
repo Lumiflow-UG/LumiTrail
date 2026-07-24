@@ -161,7 +161,7 @@ def main():
     # --- Server ---
     from server import MapRequestHandler
     from functools import partial
-    from http.server import HTTPServer
+    from http.server import ThreadingHTTPServer
     import webbrowser
 
     if not db_path.exists():
@@ -171,7 +171,11 @@ def main():
     MapRequestHandler.db_path = str(db_path)
     handler = partial(MapRequestHandler, directory=str(out_dir))
 
-    server = HTTPServer(('0.0.0.0', args.port), handler)
+    # ThreadingHTTPServer statt HTTPServer: ein einzelner haengender/langsamer
+    # Request (z.B. abgebrochene Verbindung beim Schreiben der Antwort) darf
+    # nicht mehr den kompletten Server fuer alle anderen Clients blockieren.
+    server = ThreadingHTTPServer(('0.0.0.0', args.port), handler)
+    server.daemon_threads = True
     url = f'http://localhost:{args.port}'
     print(f"Serving at {url}")
     print(f"  Press Ctrl+C to stop\n")

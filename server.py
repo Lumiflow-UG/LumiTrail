@@ -11,19 +11,31 @@ import json
 import os
 import sys
 import sqlite3
+import time
+import traceback
 import webbrowser
 from functools import partial
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse, parse_qs
 
 from preprocess import DB_NAME
+
+# Mit VERBOSE=1 (env var) werden ALLE Requests geloggt, nicht nur Fehler.
+# Wichtig fuer's Debuggen eines haengenden/langsamen Servers in Docker:
+#   docker run/compose -e VERBOSE=1 ...
+VERBOSE = os.environ.get('VERBOSE', '') not in ('', '0', 'false')
 
 
 class MapRequestHandler(SimpleHTTPRequestHandler):
     """Handler: static files + /api/* + /original/*"""
 
     db_path = ""  # set by server setup
+    # Socket-Timeout: ein Client, der die Verbindung nicht sauber schliesst
+    # (Tab zu, Netzwerkabbruch), darf einen write()-Syscall nicht ewig
+    # blockieren lassen. Ohne das haengt der komplette Server fest, weil
+    # HTTPServer/ThreadingHTTPServer sonst kein Limit setzt.
+    timeout = 30
 
     def end_headers(self):
         # Nie cached ausliefern, damit Änderungen an index.html (viewer.html)
@@ -33,19 +45,27 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def _get_db(self):
-        """Get a thread-local SQLite connection (read-only)."""
-        return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
+        """Get a thread-local SQLite connection (read-only).
+        timeout=10s: falls preprocess.py/--watch gerade schreibt und die DB
+        kurz gelockt ist, warten statt sofort mit 'database is locked' zu
+        crashen (bzw. den Request auf unbestimmte Zeit haengen zu lassen)."""
+        return sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=10)
 
     def do_GET(self):
+        started = time.monotonic()
         parsed = urlparse(self.path)
         path = parsed.path
-
-        if path.startswith('/api/'):
-            self.handle_api(path, parse_qs(parsed.query))
-        elif path.startswith('/original/'):
-            self.serve_original(path)
-        else:
-            super().do_GET()
+        try:
+            if path.startswith('/api/'):
+                self.handle_api(path, parse_qs(parsed.query))
+            elif path.startswith('/original/'):
+                self.serve_original(path)
+            else:
+                super().do_GET()
+        finally:
+            elapsed = time.monotonic() - started
+            if VERBOSE or elapsed > 2.0:
+                print(f"[req] {self.path} took {elapsed:.2f}s", file=sys.stderr, flush=True)
 
     def handle_api(self, path, params):
         """Route /api/* requests."""
@@ -69,6 +89,9 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             else:
                 self.send_error(404, "Unknown API endpoint")
         except Exception as e:
+            print(f"[ERROR] {path}: {e}", file=sys.stderr, flush=True)
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
             self.send_json({"error": str(e)}, 500)
 
     def api_stats(self):
@@ -336,7 +359,11 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format, *args):
-        if args and '404' in str(args[0]):
+        # Standard: nur Fehler (4xx/5xx) loggen, um das Log nicht mit jedem
+        # Tile/API-Request zuzumuellen. Mit VERBOSE=1 wird alles geloggt -
+        # hilfreich, um einen haengenden/langsamen Server zu debuggen.
+        msg = str(args[0]) if args else ''
+        if VERBOSE or '404' in msg or ' 5' in msg:
             super().log_message(format, *args)
 
 
@@ -367,7 +394,11 @@ def main():
     MapRequestHandler.db_path = str(db_path)
     handler = partial(MapRequestHandler, directory=str(serve_dir))
 
-    server = HTTPServer(('127.0.0.1', args.port), handler)
+    # ThreadingHTTPServer statt HTTPServer: ein einzelner haengender/langsamer
+    # Request (z.B. abgebrochene Verbindung beim Schreiben der Antwort) darf
+    # nicht mehr den kompletten Server fuer alle anderen Clients blockieren.
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), handler)
+    server.daemon_threads = True
     url = f'http://localhost:{args.port}'
     print(f"Serving at {url}")
     print(f"  Map data: {serve_dir}")
