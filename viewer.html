@@ -499,6 +499,11 @@ function renderTreeNode(node, depth) {
 function renderFileEntry(file, folderPath) {
   const div = document.createElement('div');
   div.className = 'tree-file';
+  // Ganze Zeile klickbar machen (nicht nur der Name)
+  div.onclick = (e) => {
+    if (e.target.classList.contains('file-checkbox')) return; // Checkbox nur toggeln
+    zoomToItem(file.id, file.type, e);
+  };
   const dateStr = file.date ? new Date(file.date).toLocaleDateString('de-DE') : '';
   const icon = file.type === 'track' ? '📍' : '📷';
   const isTrackVisible = visibleTrackIds.has(file.id);
@@ -507,7 +512,7 @@ function renderFileEntry(file, folderPath) {
   div.innerHTML = `
     <input type="checkbox" class="file-checkbox" ${checked} onclick="event.stopPropagation()" onchange="toggleFileVisibility('${escJs(file.id)}', '${escJs(file.type)}', this.checked)">
     <span class="file-icon">${icon}</span>
-    <span class="file-name" title="${escHtml(file.name)}" onclick="zoomToItem('${escJs(file.id)}', '${escJs(file.type)}', event)">${escHtml(file.name)}</span>
+    <span class="file-name" title="${escHtml(file.name)}">${escHtml(file.name)}</span>
     <span class="file-date">${dateStr}</span>
   `;
   return div;
@@ -715,19 +720,22 @@ function expandAllTree() {
 // ---------------------------------------------------------------------------
 function zoomToItem(id, type, event) {
   event.stopPropagation();
+  console.log('[LumiTrail:zoom] Klick auf', type, id);
   if (type === 'photo') {
     // Find photo marker and open gallery + zoom
     const entry = photoMarkersById[id];
+    console.log('[LumiTrail:zoom]   photo im Viewport geladen?', !!entry);
     if (entry) {
       openGalleryAt(entry.marker);
       map.setView([entry.data.lat, entry.data.lon], 16);
     } else {
-      // Photo not in viewport - fetch from tree data and load
+      // Photo not in viewport - fetch and load
       loadPhotoAndZoom(id);
     }
   } else if (type === 'track') {
     // Find track layer and zoom to bounds
     const entry = trackLayersById[id];
+    console.log('[LumiTrail:zoom]   track im Viewport geladen?', !!entry);
     if (entry) {
       map.fitBounds(entry.layer.getBounds().pad(0.1));
     } else {
@@ -739,69 +747,68 @@ function zoomToItem(id, type, event) {
 
 async function loadPhotoAndZoom(photoId) {
   try {
-    // Find photo in tree data first
-    const photoInfo = findPhotoInTree(treeData, photoId);
-    if (!photoInfo) return;
-
-    // Fetch photo data directly from API (no viewport filter)
-    const resp = await fetch(`/api/photos?south=-90&north=90&west=-180&east=180`);
-    const photos = await resp.json();
-    const photoData = photos.find(p => p.id === photoId);
-    if (!photoData) return;
-
-    // Ensure photo is visible
-    visiblePhotoIds.add(photoId);
-    await loadViewport();
-
-    // Try to open gallery with the marker
-    const entry = photoMarkersById[photoId];
-    if (entry) {
-      openGalleryAt(entry.marker);
-      map.setView([entry.data.lat, entry.data.lon], 16);
-    } else {
-      // Fallback: create temporary marker and open gallery
-      const icon = L.divIcon({
-        className: 'photo-marker',
-        html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${photoData.thumb}') center/cover;"></div>`,
-        iconSize: [36, 36], iconAnchor: [18, 18],
-      });
-      const tempMarker = L.marker([photoData.lat, photoData.lon], { icon });
-      tempMarker._photoId = photoId;
-      tempMarker.addTo(map);
-      tempMarker.on('click', () => openGalleryAt(tempMarker));
-      openGalleryAt(tempMarker);
-      map.setView([photoData.lat, photoData.lon], 16);
-      setTimeout(() => map.removeLayer(tempMarker), 3000);
+    console.log('[LumiTrail:zoom] loadPhotoAndZoom', photoId);
+    let photoData = null;
+    // Bevorzugt: gezielter Endpunkt (nur dieses eine Foto)
+    try {
+      const resp = await fetch(`/api/photo/${photoId}`);
+      if (resp.ok) {
+        photoData = await resp.json();
+      } else {
+        console.log('[LumiTrail:zoom]   /api/photo/{id} nicht verfügbar (HTTP', resp.status, '), Fallback');
+      }
+    } catch (e) {
+      console.log('[LumiTrail:zoom]   /api/photo/{id} fehlgeschlagen, Fallback auf Volldaten');
     }
+    // Fallback für alte Server ohne /api/photo/{id}: alle Fotos holen (auf großen DBs lastig)
+    if (!photoData) {
+      console.log('[LumiTrail:zoom]   Fallback: ALLE Fotos holen (lastig!)');
+      const resp = await fetch(`/api/photos?south=-90&north=90&west=-180&east=180`);
+      const photos = await resp.json();
+      photoData = photos.find(p => p.id === photoId);
+    }
+    if (!photoData) {
+      console.warn('[LumiTrail:zoom] Foto nicht gefunden', photoId);
+      return;
+    }
+    console.log('[LumiTrail:zoom]   Foto bei', photoData.lat, photoData.lon, '-> setView + Galerie');
+    visiblePhotoIds.add(photoId);
+    map.setView([photoData.lat, photoData.lon], 16);
+    // Temporärer Marker, damit die Galerie direkt aufgeht
+    const icon = L.divIcon({
+      className: 'photo-marker',
+      html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${absThumb(photoData.thumb)}') center/cover;"></div>`,
+      iconSize: [36, 36], iconAnchor: [18, 18],
+    });
+    const tempMarker = L.marker([photoData.lat, photoData.lon], { icon });
+    tempMarker._photoId = photoId;
+    tempMarker.addTo(map);
+    tempMarker.on('click', () => openGalleryAt(tempMarker));
+    openGalleryAt(tempMarker);
+    setTimeout(() => map.removeLayer(tempMarker), 3000);
   } catch (e) {
-    console.error('Failed to load photo:', e);
+    console.error('[LumiTrail:zoom] loadPhotoAndZoom fehlgeschlagen', photoId, e);
   }
 }
 
 async function loadTrackAndZoom(trackId) {
   try {
-    // Fetch single track directly from API (no viewport filter)
+    console.log('[LumiTrail:zoom] loadTrackAndZoom', trackId);
     const resp = await fetch(`/api/track/${trackId}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const points = await resp.json();
     const latlngs = points.map(p => [p[0], p[1]]);
-
-    // Ensure track is visible
-    visibleTrackIds.add(trackId);
-    await loadViewport();
-
-    // Zoom to track bounds
-    const entry = trackLayersById[trackId];
-    if (entry) {
-      map.fitBounds(entry.layer.getBounds().pad(0.1));
-    } else if (latlngs.length > 0) {
-      // Fallback: create temporary polyline and zoom
-      const tempLine = L.polyline(latlngs, { color: TRACK_COLOR, weight: 3, opacity: 0.5 });
-      tempLine.addTo(map);
-      map.fitBounds(tempLine.getBounds().pad(0.1));
-      setTimeout(() => map.removeLayer(tempLine), 2000);
+    if (!latlngs.length) {
+      console.warn('[LumiTrail:zoom] Track hat keine Punkte', trackId);
+      return;
     }
+    console.log('[LumiTrail:zoom]   Track-Punkte:', latlngs.length, '-> direktes fitBounds');
+    // Sichtbar machen + direkt auf die geholten Punkte zoomen (unabhängig vom Viewport).
+    // Der moveend danach laedt den echten Layer nach.
+    visibleTrackIds.add(trackId);
+    map.fitBounds(L.latLngBounds(latlngs).pad(0.1));
   } catch (e) {
-    console.error('Failed to load track:', e);
+    console.error('[LumiTrail:zoom] loadTrackAndZoom fehlgeschlagen', trackId, e);
   }
 }
 
@@ -890,7 +897,11 @@ function updateDateRangeMin(val) {
   if (dateRange.min > dateRange.max) dateRange.min = new Date(dateRange.max);
   updateDateRangeDisplay();
   updateDateRangeFill();
-  loadViewport();
+  // Nicht bei jedem oninput (Drag-Schritt) sofort laden -> sonst flutet es
+  // den Browser/Server mit Requests (net::ERR_INSUFFICIENT_RESOURCES).
+  // Genau wie moveend debouncen.
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(loadViewport, DEBOUNCE_MS);
 }
 
 function updateDateRangeMax(val) {
@@ -901,7 +912,11 @@ function updateDateRangeMax(val) {
   if (dateRange.max < dateRange.min) dateRange.max = new Date(dateRange.min);
   updateDateRangeDisplay();
   updateDateRangeFill();
-  loadViewport();
+  // Nicht bei jedem oninput (Drag-Schritt) sofort laden -> sonst flutet es
+  // den Browser/Server mit Requests (net::ERR_INSUFFICIENT_RESOURCES).
+  // Genau wie moveend debouncen.
+  clearTimeout(loadTimer);
+  loadTimer = setTimeout(loadViewport, DEBOUNCE_MS);
 }
 
 function updateDateRangeDisplay() {
@@ -1053,7 +1068,7 @@ async function loadViewport() {
 
       const icon = L.divIcon({
         className: 'photo-marker',
-        html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${photo.thumb}') center/cover;"></div>`,
+        html: `<div style="width:36px;height:36px;border-radius:4px;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.4);background:url('${absThumb(photo.thumb)}') center/cover;"></div>`,
         iconSize: [36, 36], iconAnchor: [18, 18],
       });
 
@@ -1287,9 +1302,20 @@ function openGalleryNearby(latlng, clusterMarkers) {
   document.getElementById('gallery').style.display = 'block';
 }
 
+function absThumb(t) {
+  // thumb in DB ist z.B. "thumbs/xxx.jpg" (relativ ohne Slash).
+  // -> zu "/thumbs/xxx.jpg" machen, damit es unabhaengig von document.baseURI
+  // immer serverseitig absolut aufgeloest wird.
+  if (!t) return '';
+  if (/^(https?:)?\/\//.test(t) || t.startsWith('data:') || t.startsWith('/')) return t;
+  return '/' + t;
+}
+
 function renderGallery() {
   const photo = galleryPhotos[galleryIdx];
-  document.getElementById('gallery-img').src = photo.thumb;
+  const thumbUrl = absThumb(photo.thumb);
+  console.log('[LumiTrail:gallery] photo', photo.id, 'thumb roh=', photo.thumb, '-> src=', thumbUrl);
+  document.getElementById('gallery-img').src = thumbUrl;
   const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
   document.getElementById('gallery-meta').innerHTML =
     `📷 ${escHtml(photo.filename)}${dateStr ? ' · ' + dateStr : ''} · ${escHtml(photo.tour)} · ${galleryIdx + 1}/${galleryPhotos.length}`;
@@ -1301,7 +1327,7 @@ function renderGallery() {
   strip.innerHTML = '';
   galleryPhotos.forEach((p, i) => {
     const img = document.createElement('img');
-    img.src = p.thumb;
+    img.src = absThumb(p.thumb);
     img.className = i === galleryIdx ? 'active' : '';
     img.onclick = () => { galleryIdx = i; renderGallery(); };
     strip.appendChild(img);

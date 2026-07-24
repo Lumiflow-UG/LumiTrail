@@ -22,9 +22,10 @@ Every existing solution falls short in some way:
 
 - **Heatmap-style track rendering** — overlapping tracks shift from blue → orange → red
 - **Clustered photo markers** — smooth at any zoom level, even with thousands of photos
-- **Photo gallery** — click a photo or cluster to browse nearby photos with arrow navigation
-- **Fullscreen lightbox** — click to view original full-resolution photos
-- **Tour filtering** — toggle tracks/photos by folder (tour)
+- **Photo gallery** — click a photo or cluster to open the gallery; arrow keys / on-screen buttons browse through **all currently visible photos** (not just the clicked one)
+- **Fullscreen lightbox** — click the gallery image to view the original full-resolution photo
+- **Date-range filter** — a dual slider restricts the displayed tracks and photos to a chosen time window
+- **Click-to-focus from the sidebar** — click any track or photo in the tree to fly to its location on the map and open its gallery (the whole row is clickable)
 - **Load GPX** — load one or more local GPX files directly in the browser, shown as highlighted tracks with click-to-zoom, independent of the preprocessed data
 - **Delta caching** — only new/changed files are re-processed on subsequent runs
 - **File watching** — `--watch` mode automatically picks up new photos and GPX files without restarting
@@ -147,7 +148,7 @@ docker compose up -d
 ```
 
 LumiTrail will scan `/data` on startup, then watch for new files automatically (polling every 30 seconds by default).  
-Open `http://localhost:8080` in your browser.
+Open the map in your browser at the port published in `docker-compose.yml` (e.g. `http://localhost:2500`).
 
 ### Synology NAS
 
@@ -158,7 +159,7 @@ LumiTrail runs on Synology via **Container Manager** (DSM 7.2+):
 3. Adjust the volume path in `docker-compose.yml` to point to your photos (e.g. `/volume1/photos`)
 4. Click **Build** — the container starts, preprocesses, and serves the map
 
-Access the map at `http://<nas-ip>:8080`. The `--watch` flag ensures newly added photos and GPX files are picked up automatically without restarting.
+Access the map at `http://<nas-ip>:2500` (host port from `docker-compose.yml`; the container listens on 8080 internally). The `--watch` flag ensures newly added photos and GPX files are picked up automatically without restarting.
 
 ### Options
 
@@ -178,20 +179,21 @@ command: ["/data/2024", "/data/2025", "-o", "/output", "--watch", "--no-browser"
 ## Architecture
 
 ```
-preprocess.py  →  map_output/
-                   ├── index.json      (track overviews + photo metadata)
-                   ├── index.html      (Leaflet viewer)
+preprocess.py  →  output/
+                   ├── lumitrail.db     (SQLite: track overviews + photo metadata)
+                   ├── index.html      (Leaflet viewer, copied from viewer.html at startup)
                    ├── .cache.json     (delta cache for fast re-runs)
-                   ├── thumbs/         (300px JPEG thumbnails)
+                   ├── thumbs/         (JPEG thumbnails)
                    └── tracks/         (full-resolution track JSONs)
 
-server.py      →  serves map_output/ + originals from source paths
-                   localhost:8080
+server.py      →  serves output/ + originals from source paths
+                   (port 8080 inside the container; published e.g. as :2500 via docker-compose)
 ```
 
 - **Tracks** are simplified to ~150 points for the overview. Full resolution loads on click.
-- **Photos** are displayed as clustered thumbnail markers. Originals are served on-demand for the lightbox.
+- **Photos** are displayed as clustered thumbnail markers. Originals are served on-demand for the lightbox. Thumbnails are served from `output/thumbs/`.
 - **Heatmap overlay** shows track density with a blue→red gradient.
+- **Date filtering** compares the date prefix (`YYYY-MM-DD`) of each track/photo, so tracks recorded later on the boundary day are still included.
 
 ## Performance
 

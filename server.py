@@ -63,6 +63,9 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             elif path.startswith('/api/track/'):
                 track_id = path.split('/')[-1]
                 self.api_track_detail(track_id)
+            elif path.startswith('/api/photo/'):
+                photo_id = path.split('/')[-1]
+                self.api_photo_detail(photo_id)
             else:
                 self.send_error(404, "Unknown API endpoint")
         except Exception as e:
@@ -191,10 +194,10 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             sql += f" AND tour IN ({placeholders})"
             args.extend(tours)
         if date_min:
-            sql += " AND date >= ?"
+            sql += " AND substr(date, 1, 10) >= ?"
             args.append(date_min)
         if date_max:
-            sql += " AND date <= ?"
+            sql += " AND substr(date, 1, 10) <= ?"
             args.append(date_max)
 
         rows = conn.execute(sql, args).fetchall()
@@ -202,7 +205,7 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
 
         photos = [
             {"id": r[0], "lat": r[1], "lon": r[2], "date": r[3],
-             "tour": r[4], "thumb": r[5], "filename": r[6]}
+             "tour": r[4], "thumb": (('/' + r[5]) if r[5] and not r[5].startswith('/') else r[5]), "filename": r[6]}
             for r in rows
         ]
         self.send_json(photos)
@@ -235,9 +238,9 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             if tour_filter:
                 if r[3] not in tour_filter.split(','):
                     continue
-            if date_min and r[2] and r[2] < date_min:
+            if date_min and r[2] and r[2][:10] < date_min:
                 continue
-            if date_max and r[2] and r[2] > date_max:
+            if date_max and r[2] and r[2][:10] > date_max:
                 continue
             result.append({
                 "id": r[0], "name": r[1], "date": r[2], "tour": r[3],
@@ -258,6 +261,25 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             return
         # full_points is already a JSON string, send directly
         self.send_raw_json(row[0])
+
+    def api_photo_detail(self, photo_id):
+        """Return a single photo's metadata (incl. coordinates) by id."""
+        conn = self._get_db()
+        row = conn.execute(
+            "SELECT id, lat, lon, date, tour, thumb, filename FROM photos WHERE id = ?",
+            (photo_id,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            self.send_error(404, f"Photo {photo_id} not found")
+            return
+        photo = {
+            "id": row[0], "lat": row[1], "lon": row[2], "date": row[3],
+            "tour": row[4],
+            "thumb": (('/' + row[5]) if row[5] and not row[5].startswith('/') else row[5]),
+            "filename": row[6],
+        }
+        self.send_json(photo)
 
     def serve_original(self, path):
         """Serve an original photo by its ID hash."""
