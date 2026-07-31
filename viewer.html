@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.css"/>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -215,6 +216,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .tree-container::-webkit-scrollbar-track { background: transparent; }
 .tree-container::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 .tree-container::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+/* Geocoder (Ortssuche) anpassen */
+.leaflet-control-geocoder {
+  border-radius: 6px !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2) !important;
+}
+.leaflet-control-geocoder-form input {
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+.leaflet-control-geocoder-alternatives {
+  font-size: 12px;
+  max-height: 300px;
+}
 </style>
 </head>
 <body>
@@ -284,6 +301,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder@2.4.0/dist/Control.Geocoder.js"></script>
 <script>
 // ---------------------------------------------------------------------------
 // State
@@ -330,6 +348,24 @@ async function init() {
     spiderfyOnMaxZoom: true,
     showCoverageOnHover: false,
     disableClusteringAtZoom: 16,
+  }).addTo(map);
+
+  // Ortssuche (Geocoder) - links oben
+  L.Control.geocoder({
+    defaultMarkGeocode: false,  // kein Standard-Marker, wir zoomen nur
+    position: 'topleft',
+    placeholder: 'Ort suchen...',
+    errorMessage: 'Nichts gefunden.',
+    collapsed: false,  // immer sichtbares Eingabefeld
+  }).on('markgeocode', function(e) {
+    const bbox = e.geocode.bbox;
+    const center = e.geocode.center;
+    console.log('[LumiTrail:geocode] Gefunden:', e.geocode.name, 'bei', center);
+    if (bbox) {
+      map.fitBounds([[bbox.getSouth(), bbox.getWest()], [bbox.getNorth(), bbox.getEast()]]);
+    } else {
+      map.setView(center, 13);
+    }
   }).addTo(map);
 
   // GPX upload works independently of the backend API
