@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir gpxpy pillow watchdog
+RUN pip install --no-cache-dir gpxpy pillow watchdog py-spy
 
 COPY preprocess.py server.py lumitrail.py viewer.html ./
 

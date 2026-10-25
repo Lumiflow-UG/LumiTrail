@@ -31,11 +31,10 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
     """Handler: static files + /api/* + /original/*"""
 
     db_path = ""  # set by server setup
-    # Socket-Timeout: ein Client, der die Verbindung nicht sauber schliesst
-    # (Tab zu, Netzwerkabbruch), darf einen write()-Syscall nicht ewig
-    # blockieren lassen. Ohne das haengt der komplette Server fest, weil
-    # HTTPServer/ThreadingHTTPServer sonst kein Limit setzt.
-    timeout = 30
+    # Socket-Timeout: ein Client, der die Verbindung nicht sauber schliesst, darf
+    # einen write()-Syscall nicht ewig blockieren lassen. 300s reichen fuer grosse
+    # /api/tree- oder /api/photos-Antworten (15k+ Fotos) auch auf einem NAS.
+    timeout = 300
 
     def end_headers(self):
         # Nie cached ausliefern, damit Änderungen an index.html (viewer.html)

@@ -50,6 +50,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 .toggle-btn.active { background: #0066cc; color: white; border-color: #0066cc; }
 .toggle-btn:hover { border-color: #999; }
 
+/* Basemap switcher */
+#basemapRow { display: flex; gap: 4px; margin-bottom: 8px; }
+#basemapRow .bm-btn {
+  flex: 1; padding: 5px 2px; border: 1px solid #ddd; border-radius: 4px;
+  background: #f8f8f8; cursor: pointer; text-align: center; font-size: 11px;
+  transition: all 0.15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#basemapRow .bm-btn.active { background: #0066cc; color: white; border-color: #0066cc; }
+#basemapRow .bm-btn:hover { border-color: #999; }
+
 /* Photo popup */
 .photo-popup { text-align: center; }
 .photo-popup img { max-width: 280px; max-height: 200px; border-radius: 4px; }
@@ -279,9 +289,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     </div>
   </div>
 
+  <!-- Basemap switcher -->
+  <div class="section">
+    <div class="section-title">Kartenstil</div>
+    <div id="basemapRow"></div>
+  </div>
+
   <!-- Tree View -->
   <div class="section">
     <div class="section-title">Ordner & Dateien</div>
+    <div class="tree-actions">
+      <button class="tree-btn" onclick="selectAllTree()">Alle an</button>
+      <button class="tree-btn" onclick="deselectAllTree()">Alle aus</button>
+    </div>
     <div class="tree-actions">
       <button class="tree-btn" id="btnCollapseAll" onclick="collapseAllTree()">Alles zuklappen</button>
       <button class="tree-btn" id="btnExpandAll" onclick="expandAllTree()">Alles aufklappen</button>
@@ -330,16 +350,87 @@ const TRACK_COLOR_FULL = 'rgba(50, 100, 180, 0.6)';
 const CUSTOM_TRACK_COLOR = '#e91e63';
 
 // ---------------------------------------------------------------------------
+// Basemaps - kostenlos und ohne API-Key nutzbar.
+// Wichtig: tile.openstreetmap.org ist absichtlich NICHT dabei. Deren
+// Tile-Usage-Policy erlaubt nur Karten fuer OSM selbst bzw. sehr kleine
+// Projekte; eine selbst gehostete App mit mehreren Nutzern wird gesperrt
+// ("App is not following the tile usage policy"). Esri erlaubt die Nutzung
+// der ArcGIS-REST-Tiles kostenlos mit Quellenangabe.
+// ---------------------------------------------------------------------------
+const BASEMAPS = [
+  {
+    id: 'esri',
+    label: 'Straße',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      maxZoom: 19,
+      attribution: 'Kartendaten &copy; <a href="https://www.esri.com/">Esri</a> &amp; Mitwirkende',
+    },
+  },
+  {
+    id: 'esri_topo',
+    label: 'Gelände',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      maxZoom: 19,
+      attribution: 'Kartendaten &copy; <a href="https://www.esri.com/">Esri</a> &amp; Mitwirkende',
+    },
+  },
+  {
+    id: 'esri_imagery',
+    label: 'Satellit',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      maxZoom: 19,
+      attribution: 'Bilddaten &copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics',
+    },
+  },
+  {
+    id: 'cyclosm',
+    label: 'Rad/Fuß',
+    url: 'https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png',
+    options: {
+      maxZoom: 18,
+      subdomains: 'abc',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, '
+        + '<a href="https://www.cyclosm.org/">CyclOSM</a>',
+    },
+  },
+  {
+    id: 'carto',
+    label: 'Hell',
+    // CARTO verlangt inzwischen einen API-Key. Ohne Key antwortet der Server
+    // mit HTTP 200, liefert aber nur ein leeres Platzhalterbild - es gibt
+    // also KEINEN tileerror, der automatische Fallback greift hier nicht.
+    // Deshalb ist dieser Anbieter deaktiviert und nur mit eigenem Key nutzbar.
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    disabled: true,
+    requiresKey: true,
+    options: {
+      maxZoom: 19,
+      subdomains: 'abcd',
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-Mitwirkende, '
+        + '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+    },
+  },
+];
+
+// Nur aktive Anbieter werden angezeigt und im Fallback-Ring beruecksichtigt.
+const USABLE_BASEMAPS = BASEMAPS.filter(b => !b.disabled);
+
+const BASEMAP_STORAGE_KEY = 'lumitrail.basemap';
+const DEFAULT_BASEMAP_ID = 'esri';
+let currentBasemap = null;   // active L.tileLayer
+let currentBasemapId = null;
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
   map = L.map('map', { zoomControl: true }).setView([48.5, 9.5], 8);
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 19,
-    subdomains: 'abcd',
-  }).addTo(map);
+  renderBasemapButtons();
+  setBasemap(getStoredBasemapId(), { silent: true });
 
   trackGroup = L.layerGroup().addTo(map);
   customTrackGroup = L.layerGroup().addTo(map);
@@ -350,13 +441,18 @@ async function init() {
     disableClusteringAtZoom: 16,
   }).addTo(map);
 
-  // Ortssuche (Geocoder) - links oben
+  // Ortssuche (Geocoder) - links oben.
+  // Bewusst Photon statt Nominatim: Nominatim (openstreetmap.org) hat eine
+  // strenge Usage-Policy (max. 1 Request/Sekunde, kein Heavy-Use) und sperrt
+  // Apps schnell. Photon ist keyfrei, begrenzt aber ebenfalls hart - deshalb
+  // wird jede Anfrage gedrosselt (siehe throttledPhotonGeocoder).
   L.Control.geocoder({
     defaultMarkGeocode: false,  // kein Standard-Marker, wir zoomen nur
     position: 'topleft',
     placeholder: 'Ort suchen...',
     errorMessage: 'Nichts gefunden.',
     collapsed: false,  // immer sichtbares Eingabefeld
+    geocoder: throttledPhotonGeocoder(),
   }).on('markgeocode', function(e) {
     const bbox = e.geocode.bbox;
     const center = e.geocode.center;
@@ -425,6 +521,160 @@ async function init() {
     if (childMarkers.length > 0) {
       openGalleryNearby(childMarkers[0].getLatLng(), childMarkers);
     }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Geocoder mit Drosselung
+// ---------------------------------------------------------------------------
+// Photon (photon.komoot.io) ist keyfrei, beantwortet aber nur wenige Anfragen
+// pro Zeitfenster (nach ~6 schnellen Requests kommt HTTP 503). Das
+// Geocoder-Control fragt bei JEDEM Tastendruck an. Dieser Wrapper debounced
+// die Eingabe und haelt zusaetzlich einen Mindestabstand zwischen zwei
+// tatsaechlichen Netzwerkanfragen ein. Veraltete Antworten werden verworfen.
+const GEOCODE_DEBOUNCE_MS = 400;   // warten, bis der Nutzer zu tippen aufhoert
+const GEOCODE_MIN_GAP_MS = 1000;   // Photon: max. ~1 Anfrage pro Sekunde
+
+function throttledPhotonGeocoder() {
+  const base = L.Control.Geocoder.photon({
+    serviceUrl: 'https://photon.komoot.io/api/',
+    reverseUrl: 'https://photon.komoot.io/reverse/',
+  });
+
+  let lastRequestAt = 0;    // Zeitpunkt der letzten echten Anfrage
+  let pendingTimer = null;  // laufender Debounce-Timer
+  let requestSeq = 0;       // laufende Nummer gegen veraltete Antworten
+
+  // Ruft fn fruehestens nach `wait` ms auf, aber nie haeufiger als
+  // GEOCODE_MIN_GAP_MS. Liegen Anfragen zu dicht, wird die Wartezeit
+  // entsprechend verlaengert.
+  function schedule(fn, wait) {
+    clearTimeout(pendingTimer);
+    const now = Date.now();
+    const sinceLast = now - lastRequestAt;
+    const needed = Math.max(wait, GEOCODE_MIN_GAP_MS - sinceLast);
+    pendingTimer = setTimeout(() => {
+      lastRequestAt = Date.now();
+      fn();
+    }, needed);
+  }
+
+  return {
+    // Wird vom Control bei jeder Eingabe aufgerufen (Suggest-Modus).
+    suggest(query, cb, context) {
+      const seq = ++requestSeq;
+      schedule(() => {
+        base.suggest(query, (results) => {
+          // Antwort einer inzwischen veralteten Anfrage ignorieren.
+          if (seq !== requestSeq) return;
+          cb.call(context, results);
+        }, context);
+      }, GEOCODE_DEBOUNCE_MS);
+    },
+
+    // Enter-Taste / explizite Suche: kurzer Debounce, damit nicht jeder
+    // Tastendruck einzeln rausgeht.
+    geocode(query, cb, context) {
+      const seq = ++requestSeq;
+      schedule(() => {
+        base.geocode(query, (results) => {
+          if (seq !== requestSeq) return;
+          cb.call(context, results);
+        }, context);
+      }, GEOCODE_DEBOUNCE_MS);
+    },
+
+    reverse(latLng, scale, cb, context) {
+      schedule(() => base.reverse(latLng, scale, cb, context), 0);
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Basemap switching
+// ---------------------------------------------------------------------------
+function renderBasemapButtons() {
+  const row = document.getElementById('basemapRow');
+  if (!row) return;
+  row.innerHTML = '';
+  USABLE_BASEMAPS.forEach(def => {
+    const btn = document.createElement('div');
+    btn.className = 'bm-btn';
+    btn.dataset.basemap = def.id;
+    btn.textContent = def.label;
+    btn.title = def.label;
+    btn.onclick = () => setBasemap(def.id);
+    row.appendChild(btn);
+  });
+}
+
+function getStoredBasemapId() {
+  try {
+    const stored = localStorage.getItem(BASEMAP_STORAGE_KEY);
+    // Auch gespeicherte, inzwischen deaktivierte Anbieter (z.B. CARTO) abweisen.
+    if (stored && USABLE_BASEMAPS.some(b => b.id === stored)) return stored;
+  } catch (e) { /* localStorage kann blockiert sein */ }
+  return DEFAULT_BASEMAP_ID;
+}
+
+function setBasemap(id, opts) {
+  const o = opts || {};
+  const def = USABLE_BASEMAPS.find(b => b.id === id)
+    || USABLE_BASEMAPS.find(b => b.id === DEFAULT_BASEMAP_ID)
+    || USABLE_BASEMAPS[0];
+  if (!def) return;
+
+  if (currentBasemap) {
+    map.removeLayer(currentBasemap);
+    currentBasemap = null;
+  }
+
+  // Bei Tile-Fehlern wird der naechste Anbieter probiert, damit die Karte
+  // nie leer bleibt. _depth verhindert eine Endlos-Rekursion, falls alle
+  // Anbieter ausfallen.
+  const depth = o._depth || 0;
+  let errorCount = 0;
+  let fallbackTried = false;
+  const FAIL_THRESHOLD = 4;
+
+  const layer = L.tileLayer(def.url, def.options);
+  layer.on('tileerror', () => {
+    errorCount++;
+    if (errorCount >= FAIL_THRESHOLD && !fallbackTried && depth < USABLE_BASEMAPS.length - 1) {
+      fallbackTried = true;
+      const idx = USABLE_BASEMAPS.findIndex(b => b.id === def.id);
+      const next = USABLE_BASEMAPS[(idx + 1) % USABLE_BASEMAPS.length];
+      if (next && next.id !== def.id) {
+        console.warn(`[LumiTrail:basemap] "${def.label}" laedt nicht (${errorCount} Fehler), wechsle zu "${next.label}"`);
+        setBasemap(next.id, { _depth: depth + 1, _isFallback: true });
+      }
+    }
+  });
+
+  layer.addTo(map);
+  // Die Basemap muss unter allen Overlays liegen (Tracks, Fotos, Heatmap).
+  layer.bringToBack();
+
+  currentBasemap = layer;
+  currentBasemapId = def.id;
+
+  // Nur eine bewusste Nutzerwahl speichern: weder der automatische Fallback
+  // noch der Initialaufruf (silent) sollen die Einstellung setzen. Sonst
+  // wuerde ein voruebergehender Ausfall die Wahl dauerhaft kippen.
+  if (!o._isFallback && !o.silent) {
+    try { localStorage.setItem(BASEMAP_STORAGE_KEY, def.id); } catch (e) { /* ignorieren */ }
+  }
+  updateBasemapButtons();
+
+  // maxZoom des Kartenobjekts an den Anbieter anpassen
+  const maxZ = (def.options && def.options.maxZoom) || 19;
+  map.setMaxZoom(maxZ);
+  if (map.getZoom() > maxZ) map.setZoom(maxZ);
+}
+
+function updateBasemapButtons() {
+  document.querySelectorAll('#basemapRow .bm-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.basemap === currentBasemapId);
   });
 }
 
@@ -751,6 +1001,34 @@ function expandAllTree() {
   document.querySelectorAll('.tree-children').forEach(c => c.classList.remove('collapsed'));
 }
 
+function selectAllTree() {
+  // Alle Tracks und Fotos in die sichtbaren Sets aufnehmen
+  function walk(nodes) {
+    nodes.forEach(n => {
+      (n.files || []).forEach(f => {
+        if (f.type === 'track') visibleTrackIds.add(f.id);
+        else visiblePhotoIds.add(f.id);
+      });
+      if (n.children) walk(n.children);
+    });
+  }
+  walk(treeData);
+  syncAllFolderCheckboxes();
+  // Alle Datei-Checkboxen im DOM aktualisieren
+  document.querySelectorAll('.file-checkbox').forEach(cb => { cb.checked = true; });
+  loadViewport();
+}
+
+function deselectAllTree() {
+  // Alle Tracks und Fotos aus den sichtbaren Sets entfernen
+  visibleTrackIds.clear();
+  visiblePhotoIds.clear();
+  syncAllFolderCheckboxes();
+  // Alle Datei-Checkboxen im DOM aktualisieren
+  document.querySelectorAll('.file-checkbox').forEach(cb => { cb.checked = false; });
+  loadViewport();
+}
+
 // ---------------------------------------------------------------------------
 // Zoom to item / folder from tree clicks
 // ---------------------------------------------------------------------------
@@ -1021,9 +1299,9 @@ async function loadViewport() {
     const tracks = await tracksResp.json();
     const newIds = new Set(tracks.map(t => t.id));
 
-    // Remove tracks no longer in viewport
+    // Remove tracks no longer in viewport, or filtered out by tree
     for (const id of Object.keys(trackLayersById)) {
-      if (!newIds.has(id)) {
+      if (!newIds.has(id) || !visibleTrackIds.has(id)) {
         trackGroup.removeLayer(trackLayersById[id].layer);
         delete trackLayersById[id];
       }
@@ -1089,9 +1367,9 @@ async function loadViewport() {
     const photos = await photosResp.json();
     const newIds = new Set(photos.map(p => p.id));
 
-    // Remove photos no longer in viewport
+    // Remove photos no longer in viewport, or filtered out by tree
     for (const id of Object.keys(photoMarkersById)) {
-      if (!newIds.has(id)) {
+      if (!newIds.has(id) || !visiblePhotoIds.has(id)) {
         photoCluster.removeLayer(photoMarkersById[id].marker);
         delete photoMarkersById[id];
       }
@@ -1298,10 +1576,11 @@ let galleryIdx = 0;
 
 function openGalleryAt(marker) {
   const latlng = marker.getLatLng();
-  openGalleryNearby(latlng);
+  const photoId = marker._photoId || null;
+  openGalleryNearby(latlng, null, photoId);
 }
 
-function openGalleryNearby(latlng, clusterMarkers) {
+function openGalleryNearby(latlng, clusterMarkers, clickedPhotoId) {
   const NEARBY_RADIUS = 300;
   let nearby;
   const allPhotos = Object.values(photoMarkersById);
@@ -1315,11 +1594,21 @@ function openGalleryNearby(latlng, clusterMarkers) {
         .map(p => p.data);
     }
   } else {
-    // Einzelnes Foto: alle sichtbaren Fotos einbeziehen, damit in der
-    // Galerie vor/zurück geblättert werden kann (nicht nur die im 300-m-Umkreis).
+    // Einzelnes Foto: die Fotos im Umkreis laden, die auf der Karte als
+    // Cluster-Gruppe erscheinen (1 km). Das ist die natuerliche Gruppierung,
+    // die der Benutzer auf der Karte sieht.
+    const CLUSTER_RADIUS = 1000;  // Meter
+    console.log('[LumiTrail:gallery] Einzelklick auf Photo', clickedPhotoId,
+                'Radius:', CLUSTER_RADIUS, 'm');
     nearby = allPhotos
-      .filter(p => visiblePhotoIds.has(p.data.id))
+      .filter(p => latlng.distanceTo(L.latLng(p.data.lat, p.data.lon)) < CLUSTER_RADIUS)
       .map(p => p.data);
+    if (!nearby || nearby.length === 0) {
+      // Falls kein Foto im Umkreis (unwahrscheinlich, das geklickte ist
+      // ja dabei) -> nur das geklickte selbst.
+      const entry = clickedPhotoId ? photoMarkersById[clickedPhotoId] : null;
+      if (entry) nearby = [entry.data];
+    }
   }
 
   nearby.sort((a, b) => (a.date || '').localeCompare(b.date || ''));

@@ -5,9 +5,10 @@ services:
     container_name: lumitrail
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "2500:8080"
     environment:
       - PYTHONUNBUFFERED=1
+      - VERBOSE=1   # loggt jeden Request inkl. Dauer, hilfreich fuer haengende/langsame Requests
     volumes:
       - /volume1/photos:/data:ro        # adjust to your photo/GPX directory
       - lumitrail_output:/output
