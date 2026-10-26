@@ -114,7 +114,17 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
         self.send_json([r[0] for r in rows])
 
     def api_tree(self):
-        """Build hierarchical folder tree from photos and tracks."""
+        """Build hierarchical folder tree from photos and tracks.
+        Result is cached -- the tree only changes when preprocess runs."""
+        # Cache-Key: (db_path, db-mtime). Bei --watch wird die DB
+        # aktualisiert --> mtime springt --> Cache wird invalidiert.
+        db_mtime = os.path.getmtime(self.db_path)
+        if hasattr(self.__class__, '_tree_cache'):
+            cached_mtime, cached_json = self.__class__._tree_cache
+            if cached_mtime == db_mtime:
+                self.send_raw_json(cached_json)
+                return
+
         conn = self._get_db()
 
         # Fetch all photos and tracks with their source paths and dates
@@ -194,7 +204,9 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
             return result
 
         tree = convert_node(root)
-        self.send_json(tree["children"])
+        tree_json = json.dumps(tree["children"], ensure_ascii=False)
+        MapRequestHandler._tree_cache = (db_mtime, tree_json)
+        self.send_raw_json(tree_json)
 
     def api_photos(self, params):
         """Return photos within bounds. Params: south, west, north, east, tours (comma-sep), date_min, date_max."""
@@ -326,16 +338,23 @@ class MapRequestHandler(SimpleHTTPRequestHandler):
                 '.png': 'image/png', '.gif': 'image/gif',
             }
             content_type = content_types.get(ext, 'application/octet-stream')
-
-            with open(original_path, 'rb') as f:
-                data = f.read()
+            file_size = os.path.getsize(original_path)
 
             self.send_response(200)
             self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', len(data))
+            self.send_header('Content-Length', file_size)
             self.send_header('Cache-Control', 'public, max-age=86400')
             self.end_headers()
-            self.wfile.write(data)
+
+            # Stream statt f.read(): grosse Original-Fotos (20+ MP) nicht
+            # komplett in den RAM laden - im Mehrbenutzerbetrieb wuerde das
+            # den Server sonst schnell in die Knie zwingen.
+            with open(original_path, 'rb') as f:
+                while True:
+                    chunk = f.read(65536)  # 64 KiB
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
         except Exception as e:
             self.send_error(500, f"Error reading {original_path}: {e}")
 

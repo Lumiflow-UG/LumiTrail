@@ -1332,11 +1332,19 @@ function updateDateRangeFill() {
 // Lazy load viewport data
 // ---------------------------------------------------------------------------
 let viewportLoadToken = 0;
+let viewportAbort = null;        // bricht vorherige loadViewport-Fetches ab
 async function loadViewport() {
   // Nur der jeweils letzte Aufruf darf den Karten-Zustand verändern.
-  // Überlappende Aufrufe (z.B. moveend + direkte Aufrufe) könnten sonst
-  // Layer zeitversetzt entfernen/hinzufügen und die Karte "einfrieren".
+  // Ältere Aufrufe werden zusätzlich über AbortController abgebrochen,
+  // damit der Server nicht unnötig Requests abarbeiten muss, deren
+  // Antwort sowieso niemand mehr braucht.
   const myToken = ++viewportLoadToken;
+
+  // Vorherigen Fetch abbrechen (reduziert Server-Last bei schnellem
+  // Zoomen/Pannen, z.B. wenn die Timeline setView feuert).
+  if (viewportAbort) { viewportAbort.abort(); viewportAbort = null; }
+  const ac = new AbortController();
+  viewportAbort = ac;
 
   let b, params, tracksResp, photosResp;
   try {
@@ -1350,15 +1358,20 @@ async function loadViewport() {
   if (dateRange.max) params.set('date_max', dateRange.max.toISOString().split('T')[0]);
 
   const [tr, pr] = await Promise.all([
-    showTracks ? fetch(`/api/tracks?${params}`) : Promise.resolve(null),
-    showPhotos ? fetch(`/api/photos?${params}`) : Promise.resolve(null),
+    showTracks ? fetch(`/api/tracks?${params}`, { signal: ac.signal }) : Promise.resolve(null),
+    showPhotos ? fetch(`/api/photos?${params}`, { signal: ac.signal }) : Promise.resolve(null),
   ]);
   tracksResp = tr;
   photosResp = pr;
   } catch (e) {
+    // AbortError ist harmlos - ein neuerer Aufruf hat den Request abgebrochen.
+    if (e.name === 'AbortError') return;
     console.error('loadViewport fetch failed:', e);
     return;
   }
+
+  // Sobald die Antworten da sind, ist dieser AbortController nicht mehr nötig.
+  if (viewportAbort === ac) viewportAbort = null;
 
   // Ein neuerer Load hat begonnen - Ergebnisse verwerfen.
   if (myToken !== viewportLoadToken) return;
@@ -1657,6 +1670,8 @@ let timelineLightboxMode = false;    // Lightbox blaettert die Timeline
 const timelineCoords = new Map();    // id -> {lat, lon, thumb}, vermeidet Requests
 let timelineJumpToken = 0;           // verwirft veraltete Fetch-Antworten
 let timelinePendingIdx = 0;           // naechster Start-Index, wenn Tree-Foto vor Modus geklickt
+let timelineFetchAbort = null;        // bricht vorherigen resolvePhotoCoords-Fetch ab
+let timelineCooldown = false;         // sperrt Pfeile kurz nach einem Schritt
 
 function syncTimelineToPhoto(photoId) {
   // Merkt sich: wenn die Timeline spaeter eingeschaltet wird, soll sie bei
@@ -1716,8 +1731,13 @@ function closeTimeline() {
 }
 
 function timelineStep(dir) {
-  if (!timelineActive) return;
+  if (!timelineActive || timelineCooldown) return;
+  timelineCooldown = true;
   timelineJump(timelineIdx + dir);
+  // 250ms Pause zwischen Schritten: verhindert Request-Sturm bei
+  // Tastatur-Dauerfeuer oder schnellem Geklicke. Genug fuer den User,
+  // kurz genug dass es nicht als Lag wahrgenommen wird.
+  setTimeout(() => { timelineCooldown = false; }, 250);
 }
 
 function timelineJump(idx) {
@@ -1757,17 +1777,27 @@ async function resolvePhotoCoords(photo) {
     return c;
   }
 
+  // Vorherigen Fetch abbrechen: beim schnellen Durchklicken interessiert
+  // nur noch das letzte Foto. Der Server soll keine Zombie-Requests
+  // abarbeiten muessen, die danach sowieso im Nichts landen.
+  if (timelineFetchAbort) { timelineFetchAbort.abort(); timelineFetchAbort = null; }
+  const ac = new AbortController();
+  timelineFetchAbort = ac;
+
   // Sonst genau dieses eine Foto holen (der Baum selbst enthaelt keine
   // Koordinaten). Ein Request pro neuem Foto, danach aus dem Cache.
   try {
-    const resp = await fetch(`/api/photo/${encodeURIComponent(photo.id)}`);
+    const resp = await fetch(`/api/photo/${encodeURIComponent(photo.id)}`, { signal: ac.signal });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const d = await resp.json();
     const c = { lat: d.lat, lon: d.lon, thumb: d.thumb };
     timelineCoords.set(photo.id, c);
+    if (timelineFetchAbort === ac) timelineFetchAbort = null;
     return c;
   } catch (e) {
+    if (e.name === 'AbortError') return null;
     console.warn('[LumiTrail:timeline] Koordinaten nicht ladbar:', photo.id, e);
+    if (timelineFetchAbort === ac) timelineFetchAbort = null;
     return null;
   }
 }
