@@ -140,6 +140,58 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 }
 #lightbox-close:hover { color: white; }
 
+/* Timeline (bottom center): Bildvorschau + dreiteilige Leiste < | Name+Zaehler | > */
+#timelineWrap {
+  display: none; position: absolute; bottom: 18px; left: 50%;
+  transform: translateX(-50%); z-index: 1200;
+  flex-direction: column; align-items: center; gap: 8px;
+  max-width: min(720px, 92vw); pointer-events: none;
+}
+#timelineWrap.open { display: flex; }
+/* Die Leiste selbst ist bewusst nur dreiteilig. */
+#timelineBar {
+  display: flex; pointer-events: auto;
+  background: rgba(20,20,20,0.92); backdrop-filter: blur(8px);
+  border: 1px solid #444; border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+  padding: 8px 10px; gap: 10px;
+  align-items: center; width: 100%; min-width: 300px;
+}
+/* Vorschau des aktuellen Bildes, direkt ueber der Leiste. */
+#timelinePreview {
+  pointer-events: auto; cursor: zoom-in;
+  max-height: 34vh; max-width: 100%;
+  border-radius: 8px; border: 2px solid #444;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+  object-fit: contain; background: #111; display: block;
+}
+#timelineBar .tl-btn {
+  flex-shrink: 0; width: 42px; height: 42px;
+  border: none; border-radius: 8px;
+  background: rgba(255,255,255,0.15); color: white;
+  font-size: 26px; line-height: 1; cursor: pointer;
+  transition: background 0.15s;
+}
+#timelineBar .tl-btn:hover:not(:disabled) { background: rgba(255,255,255,0.32); }
+#timelineBar .tl-btn:disabled { opacity: 0.25; cursor: default; }
+#timelineInfo {
+  flex: 1; min-width: 0; text-align: center; color: #eee;
+  display: flex; flex-direction: column; gap: 2px;
+}
+#timelineName {
+  font-size: 13px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#timelineCounter { font-size: 11px; color: #aaa; font-variant-numeric: tabular-nums; }
+
+/* Markiert auf der Karte das Bild, das der Timeline-Balken gerade zeigt. */
+.timeline-marker-inner {
+  width: 56px; height: 56px; border-radius: 6px; overflow: hidden;
+  border: 3px solid #4a90d9; background: #222;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.45);
+}
+.timeline-marker-inner img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 /* Loading */
 #loading {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -260,10 +312,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 </div>
 <div id="lightbox">
   <button id="lightbox-close" onclick="closeLightbox()">&times;</button>
-  <button class="gallery-arrow" id="lb-prev" onclick="event.stopPropagation(); galleryNav(-1); updateLightbox();">&#8249;</button>
+  <button class="gallery-arrow" id="lb-prev" onclick="event.stopPropagation(); lightboxStep(-1);">&#8249;</button>
   <img id="lightbox-img" src="">
   <div id="lightbox-meta"></div>
-  <button class="gallery-arrow" id="lb-next" onclick="event.stopPropagation(); galleryNav(1); updateLightbox();">&#8250;</button>
+  <button class="gallery-arrow" id="lb-next" onclick="event.stopPropagation(); lightboxStep(1);">&#8250;</button>
+</div>
+<div id="timelineWrap">
+  <img id="timelinePreview" src="" alt="" onclick="openTimelineLightbox()">
+  <div id="timelineBar">
+    <button class="tl-btn" id="timelinePrev" onclick="timelineStep(-1)" title="Zurück (im Baum nach oben)">&#8249;</button>
+    <div id="timelineInfo">
+      <div id="timelineName">–</div>
+      <div id="timelineCounter">0 / 0</div>
+    </div>
+    <button class="tl-btn" id="timelineNext" onclick="timelineStep(1)" title="Weiter (im Baum nach unten)">&#8250;</button>
+  </div>
 </div>
 <div id="panel">
   <h2>☀ LumiTrail</h2>
@@ -272,6 +335,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   <div class="toggle-row">
     <div class="toggle-btn active" id="btnTracks" onclick="toggleLayer('tracks')">📍 Tracks</div>
     <div class="toggle-btn active" id="btnPhotos" onclick="toggleLayer('photos')">📷 Fotos</div>
+  </div>
+
+  <div class="toggle-row">
+    <div class="toggle-btn" id="btnTimeline" onclick="toggleTimeline()">🎞 Timeline</div>
   </div>
 
   <!-- Date Range Slider -->
@@ -1036,6 +1103,8 @@ function zoomToItem(id, type, event) {
   event.stopPropagation();
   console.log('[LumiTrail:zoom] Klick auf', type, id);
   if (type === 'photo') {
+    // Timeline auf dieses Foto synchronisieren (Start merken, falls noch aus).
+    syncTimelineToPhoto(id);
     // Find photo marker and open gallery + zoom
     const entry = photoMarkersById[id];
     console.log('[LumiTrail:zoom]   photo im Viewport geladen?', !!entry);
@@ -1569,6 +1638,223 @@ function copyPath(path, el) {
 }
 
 // ---------------------------------------------------------------------------
+// Timeline - Bild fuer Bild durch den Baum blaettern
+// ---------------------------------------------------------------------------
+// Reihenfolge = genau die Reihenfolge des Baums im Panel. Der Server liefert
+// Ordner und Dateien bereits sortiert; die Tiefensuche hier geht erst die
+// Dateien eines Ordners durch, dann seine Unterordner - also 1:1 das, was der
+// Benutzer im Baum von oben nach unten sieht. "<" heisst eine Position weiter
+// oben im Baum, ">" eine weiter unten. Es werden nur Fotos durchgeblaettert:
+// Tracks haben keinen "Ort, an dem das Bild gemacht wurde" und werden
+// uebersprungen, ohne die Reihenfolge zu stoeren.
+const TIMELINE_ZOOM = 16;
+
+let timelinePhotos = [];             // flache, baumsortierte Fotorliste
+let timelineIdx = 0;
+let timelineActive = false;
+let timelineMarker = null;           // hervorgehobenes Foto auf der Karte
+let timelineLightboxMode = false;    // Lightbox blaettert die Timeline
+const timelineCoords = new Map();    // id -> {lat, lon, thumb}, vermeidet Requests
+let timelineJumpToken = 0;           // verwirft veraltete Fetch-Antworten
+let timelinePendingIdx = 0;           // naechster Start-Index, wenn Tree-Foto vor Modus geklickt
+
+function syncTimelineToPhoto(photoId) {
+  // Merkt sich: wenn die Timeline spaeter eingeschaltet wird, soll sie bei
+  // diesem Foto beginnen. Falls sie schon aktiv ist, springt sie direkt.
+  if (!treeData) return;
+  const order = buildTimelineOrder(treeData);
+  timelinePhotos = order;
+  const idx = order.findIndex(f => f.id === photoId);
+  if (idx < 0) return;  // Foto nicht im Baum (seltsam, aber ignorieren)
+  timelinePendingIdx = idx;
+  if (timelineActive) {
+    timelineIdx = idx;
+    timelineJump(idx);
+  }
+}
+
+function buildTimelineOrder(nodes) {
+  const out = [];
+  function walk(n) {
+    if (n.files) n.files.forEach(f => { if (f.type === 'photo') out.push(f); });
+    if (n.children) n.children.forEach(walk);
+  }
+  nodes.forEach(walk);
+  return out;
+}
+
+function toggleTimeline() {
+  if (timelineActive) closeTimeline();
+  else openTimeline();
+}
+
+function openTimeline() {
+  if (!treeData) return;
+  const order = buildTimelineOrder(treeData);
+  if (order.length === 0) {
+    console.warn('[LumiTrail:timeline] keine Fotos im Baum');
+    return;
+  }
+  timelinePhotos = order;
+  timelineActive = true;
+  document.getElementById('btnTimeline').classList.add('active');
+  document.getElementById('timelineWrap').classList.add('open');
+  closeGallery();  // Galerie und Timeline teilen sich den Platz unten
+  // Start an dem zuletzt via Tree geklickten Foto, sonst bei 1/xxx.
+  const start = timelinePendingIdx >= 0 && timelinePendingIdx < order.length ? timelinePendingIdx : 0;
+  console.log('[LumiTrail:timeline] an,', order.length, 'Fotos, start @', start + 1);
+  timelineJump(start);
+}
+
+function closeTimeline() {
+  timelineActive = false;
+  timelineLightboxMode = false;
+  document.getElementById('btnTimeline').classList.remove('active');
+  document.getElementById('timelineWrap').classList.remove('open');
+  if (timelineMarker) { map.removeLayer(timelineMarker); timelineMarker = null; }
+  if (document.getElementById('lightbox').classList.contains('open')) closeLightbox();
+}
+
+function timelineStep(dir) {
+  if (!timelineActive) return;
+  timelineJump(timelineIdx + dir);
+}
+
+function timelineJump(idx) {
+  if (!timelineActive || timelinePhotos.length === 0) return;
+  timelineIdx = Math.max(0, Math.min(timelinePhotos.length - 1, idx));
+  const photo = timelinePhotos[timelineIdx];
+  renderTimelineBar();
+  if (timelineLightboxMode) updateTimelineLightbox();
+
+  const myToken = ++timelineJumpToken;
+  resolvePhotoCoords(photo).then(coords => {
+    if (!timelineActive || myToken !== timelineJumpToken) return;
+    if (!coords) return;
+    // Echten thumb-Pfad aus der API nachziehen, falls er vom Standard abweicht.
+    const preview = document.getElementById('timelinePreview');
+    if (coords.thumb && timelineIdx >= 0 && timelinePhotos[timelineIdx] === photo) {
+      preview.src = absThumb(coords.thumb);
+    }
+    showTimelineMarker(photo, coords);
+    const target = L.latLng(coords.lat, coords.lon);
+    // Mehrere Fotos am selben Ort: kein erneutes setView, sonst loest jeder
+    // Klick einen kompletten loadViewport aus.
+    const same = map.getZoom() === TIMELINE_ZOOM && map.getCenter().distanceTo(target) < 1;
+    if (!same) map.setView(target, TIMELINE_ZOOM);
+  });
+}
+
+async function resolvePhotoCoords(photo) {
+  const cached = timelineCoords.get(photo.id);
+  if (cached) return cached;
+
+  // Schon im aktuellen Kartenausschnitt geladen? Dann keine Anfrage noetig.
+  const entry = photoMarkersById[photo.id];
+  if (entry && entry.data) {
+    const c = { lat: entry.data.lat, lon: entry.data.lon, thumb: entry.data.thumb };
+    timelineCoords.set(photo.id, c);
+    return c;
+  }
+
+  // Sonst genau dieses eine Foto holen (der Baum selbst enthaelt keine
+  // Koordinaten). Ein Request pro neuem Foto, danach aus dem Cache.
+  try {
+    const resp = await fetch(`/api/photo/${encodeURIComponent(photo.id)}`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const d = await resp.json();
+    const c = { lat: d.lat, lon: d.lon, thumb: d.thumb };
+    timelineCoords.set(photo.id, c);
+    return c;
+  } catch (e) {
+    console.warn('[LumiTrail:timeline] Koordinaten nicht ladbar:', photo.id, e);
+    return null;
+  }
+}
+
+function showTimelineMarker(photo, coords) {
+  const icon = L.divIcon({
+    className: '',   // sonst bekommt der divIcon den weissen Standardrahmen
+    html: `<div class="timeline-marker-inner"><img src="${escHtml(absThumb(coords.thumb || ''))}" alt=""></div>`,
+    iconSize: [56, 56],
+    iconAnchor: [28, 28],
+  });
+  const latlng = [coords.lat, coords.lon];
+  if (timelineMarker) {
+    timelineMarker.setLatLng(latlng);
+    timelineMarker.setIcon(icon);
+  } else {
+    // Bewusst direkt auf der Karte statt im photoCluster: der Marker soll
+    // sichtbar bleiben, auch wenn das Foto gerade nicht im Viewport liegt.
+    timelineMarker = L.marker(latlng, { icon, zIndexOffset: 1000 }).addTo(map);
+    timelineMarker.on('click', () => openTimelineLightbox());
+  }
+}
+
+function renderTimelineBar() {
+  const photo = timelinePhotos[timelineIdx];
+  if (!photo) return;
+  const nameEl = document.getElementById('timelineName');
+  nameEl.textContent = photo.name || '(ohne Namen)';
+  nameEl.title = photo.tour || '';
+  document.getElementById('timelineCounter').textContent =
+    `${timelineIdx + 1} / ${timelinePhotos.length}`;
+  document.getElementById('timelinePrev').disabled = timelineIdx === 0;
+  document.getElementById('timelineNext').disabled = timelineIdx === timelinePhotos.length - 1;
+
+  // Vorschau sofort setzen. Der Baum enthaelt keinen thumb-Pfad, aber der
+  // Thumbnail-Name ist deterministisch (preprocess.py: thumbs/<id>.jpg), also
+  // ist das Bild ohne zusaetzliche Anfrage da. Weicht der von der API
+  // gelieferte Pfad ab, wird er nach dem Aufloesen korrigiert.
+  const preview = document.getElementById('timelinePreview');
+  preview.dataset.photoId = photo.id;
+  preview.alt = photo.name || '';
+  const known = timelineCoords.get(photo.id);
+  setTimelinePreviewSrc(preview, known && known.thumb ? known.thumb : `/thumbs/${photo.id}.jpg`);
+}
+
+function setTimelinePreviewSrc(imgEl, thumbPath) {
+  const photoId = imgEl.dataset.photoId || '';
+  const target = absThumb(thumbPath);
+  // Fehlt das Thumbnail, bleibt sonst ein kaputtes Bildsymbol stehen - dann
+  // lieber das Original laden (die API liefert es unter /original/<id>.jpg).
+  imgEl.onerror = () => {
+    imgEl.onerror = null;  // kein Endlos-Loop, falls auch das Original fehlt
+    const orig = `/original/${encodeURIComponent(photoId)}.jpg`;
+    if (imgEl.src.indexOf(orig) === -1) imgEl.src = orig;
+  };
+  imgEl.src = target;
+}
+
+// Klick auf den Namen (oder auf den Marker) zeigt das Foto gross. Die Pfeile
+// im Lightbox blaettern dann dieselbe Timeline weiter.
+function openTimelineLightbox() {
+  if (!timelineActive) return;
+  const photo = timelinePhotos[timelineIdx];
+  if (!photo) return;
+  timelineLightboxMode = true;
+  updateTimelineLightbox();
+  document.getElementById('lightbox').classList.add('open');
+}
+
+function updateTimelineLightbox() {
+  const photo = timelinePhotos[timelineIdx];
+  if (!photo) return;
+  document.getElementById('lightbox-img').src = `/original/${photo.id}.jpg`;
+  const dateStr = photo.date ? new Date(photo.date).toLocaleDateString('de-DE') : '';
+  document.getElementById('lightbox-meta').innerHTML =
+    `📷 ${escHtml(photo.name)}${dateStr ? ' · ' + dateStr : ''} · ${escHtml(photo.tour || '')} · ${timelineIdx + 1}/${timelinePhotos.length}`;
+  document.getElementById('lb-prev').disabled = timelineIdx === 0;
+  document.getElementById('lb-next').disabled = timelineIdx === timelinePhotos.length - 1;
+}
+
+function lightboxStep(dir) {
+  if (timelineLightboxMode) { timelineStep(dir); return; }
+  galleryNav(dir);
+  updateLightbox();
+}
+
+// ---------------------------------------------------------------------------
 // Gallery
 // ---------------------------------------------------------------------------
 let galleryPhotos = [];
@@ -1622,6 +1908,10 @@ function openGalleryNearby(latlng, clusterMarkers, clickedPhotoId) {
     const d = latlng.distanceTo(L.latLng(p.lat, p.lon));
     if (d < minDist) { minDist = d; galleryIdx = i; }
   });
+
+  // Timeline auf das naechste Foto synchronisieren (auch wenn sie noch aus ist).
+  const closestPhoto = galleryPhotos[galleryIdx];
+  if (closestPhoto) syncTimelineToPhoto(closestPhoto.id);
 
   renderGallery();
   document.getElementById('gallery').style.display = 'block';
@@ -1704,12 +1994,32 @@ document.getElementById('gallery-img').addEventListener('click', () => openLight
 document.getElementById('lightbox-img').addEventListener('click', closeLightbox);
 
 document.addEventListener('keydown', (e) => {
+  // Nicht in Eingabefelder hineinsteuern (z.B. Ortssuche).
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
   const galleryOpen = document.getElementById('gallery').style.display === 'block';
   const lightboxOpen = document.getElementById('lightbox').classList.contains('open');
-  if (!galleryOpen && !lightboxOpen) return;
-  if (e.key === 'ArrowLeft') { e.preventDefault(); galleryNav(-1); if (lightboxOpen) updateLightbox(); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); galleryNav(1); if (lightboxOpen) updateLightbox(); }
-  else if (e.key === 'Escape') { e.preventDefault(); if (lightboxOpen) closeLightbox(); else closeGallery(); }
+  const timelineOpen = timelineActive;
+
+  if (!galleryOpen && !lightboxOpen && !timelineOpen) return;
+
+  if (e.key === 'ArrowLeft') {
+    e.preventDefault();
+    if (lightboxOpen) lightboxStep(-1);
+    else if (galleryOpen) galleryNav(-1);
+    else timelineStep(-1);
+  } else if (e.key === 'ArrowRight') {
+    e.preventDefault();
+    if (lightboxOpen) lightboxStep(1);
+    else if (galleryOpen) galleryNav(1);
+    else timelineStep(1);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    if (lightboxOpen) closeLightbox();
+    else if (galleryOpen) closeGallery();
+    else closeTimeline();
+  }
 });
 
 // ---------------------------------------------------------------------------

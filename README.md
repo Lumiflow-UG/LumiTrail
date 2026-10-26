@@ -24,6 +24,7 @@ Every existing solution falls short in some way:
 - **Clustered photo markers** — smooth at any zoom level, even with thousands of photos
 - **Photo gallery** — click a photo or cluster to open the gallery; arrow keys / on-screen buttons browse through **all currently visible photos** (not just the clicked one)
 - **Fullscreen lightbox** — click the gallery image to view the original full-resolution photo
+- **Timeline view** — toggleable three-part bar at the bottom of the map: browse through **all photos in tree order** (not just visible ones) with `<` and `>` buttons; counter `123 / 10024` and photo name displayed; map centers on the current photo at zoom 16; a preview thumbnail sits above the bar; arrow keys and `Escape` work in timeline mode; clicking the preview opens the lightbox for the same photo, paging continues in timeline order
 - **Date-range filter** — a dual slider restricts the displayed tracks and photos to a chosen time window
 - **Click-to-focus from the sidebar** — click any track or photo in the tree to fly to its location on the map and open its gallery (the whole row is clickable)
 - **Load GPX** — load one or more local GPX files directly in the browser, shown as highlighted tracks with click-to-zoom, independent of the preprocessed data
@@ -192,6 +193,7 @@ server.py      →  serves output/ + originals from source paths
 
 - **Tracks** are simplified to ~150 points for the overview. Full resolution loads on click.
 - **Photos** are displayed as clustered thumbnail markers. Originals are served on-demand for the lightbox. Thumbnails are served from `output/thumbs/`.
+- **Timeline view** traverses all photos in tree order (depth-first: files first, then children), matching the sidebar panel. Browse pages beyond the current viewport — map flies to each photo's location automatically. A highlighted marker sits outside the photo cluster so it remains visible regardless of zoom.
 - **Heatmap overlay** shows track density with a blue→red gradient.
 - **Date filtering** compares the date prefix (`YYYY-MM-DD`) of each track/photo, so tracks recorded later on the boundary day are still included.
 
